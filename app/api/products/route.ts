@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readDb, writeDb } from '@/lib/server-db';
 import { Producto } from '@/lib/data';
+import { isAdminRequest, unauthorizedResponse } from '@/lib/auth';
 
 export async function GET() {
   const db = readDb();
@@ -8,6 +9,10 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
+
   try {
     const body = await req.json();
     const db = readDb();
@@ -60,6 +65,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
+
   try {
     const body = await req.json();
     const db = readDb();
@@ -124,6 +133,10 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');

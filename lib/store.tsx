@@ -12,21 +12,29 @@ import {
   PluginConnector,
   StoreNotification,
   INITIAL_PRODUCTS,
-  INITIAL_ORDERS,
   DEFAULT_STORE_CONFIG,
   INITIAL_PLUGINS,
-  INITIAL_NOTIFICATIONS,
   formatCOP,
 } from './data';
 
-const STORAGE_KEY_PRODUCTS = 'lasanta_store_products_v5';
-const STORAGE_KEY_CART = 'lasanta_store_cart_v5';
-const STORAGE_KEY_ORDERS = 'lasanta_store_orders_v5';
-const STORAGE_KEY_CONFIG = 'lasanta_store_config_v5';
-const STORAGE_KEY_FAVORITES = 'lasanta_store_favorites_v5';
-const STORAGE_KEY_NOTIFICATIONS = 'lasanta_store_notifications_v5';
-const STORAGE_KEY_PLUGINS = 'lasanta_store_plugins_v5';
-const SESSION_KEY_ADMIN_AUTH = 'lasanta_admin_auth_v5';
+const STORAGE_KEY_PRODUCTS = 'lasanta_store_products_v6';
+const STORAGE_KEY_CART = 'lasanta_store_cart_v6';
+const STORAGE_KEY_FAVORITES = 'lasanta_store_favorites_v6';
+const STORAGE_KEY_MY_ORDER_IDS = 'lasanta_my_order_ids_v6';
+
+// Legacy insecure keys to purge from browsers on startup
+const LEGACY_KEYS_TO_PURGE = [
+  'lasanta_store_orders_v5',
+  'lasanta_store_config_v5',
+  'lasanta_store_notifications_v5',
+  'lasanta_store_plugins_v5',
+  'lasanta_admin_auth_v5',
+];
+
+const PUBLIC_SAFE_DEFAULT_CONFIG: StoreConfig = {
+  ...DEFAULT_STORE_CONFIG,
+  adminPin: '',
+};
 
 export interface CriticalAlertItem {
   producto: Producto;
@@ -49,12 +57,13 @@ interface StoreContextType {
   browserPushPermission: NotificationPermission | 'unsupported';
   requestBrowserPushPermission: () => Promise<boolean>;
   triggerManualPushTest: (order: Order, estado: 'Despachado' | 'Entregado') => void;
+  trackOrderByQuery: (query: string) => Promise<Order[]>;
   cartTotalCount: number;
   cartSubtotal: number;
   criticalAlerts: CriticalAlertItem[];
   isHydrated: boolean;
   isAdminAuthenticated: boolean;
-  authenticateAdmin: (pin: string) => boolean;
+  authenticateAdmin: (pin: string) => Promise<boolean>;
   logoutAdmin: () => void;
   // Favorites
   toggleFavorite: (productoId: string) => void;
@@ -82,6 +91,7 @@ interface StoreContextType {
   clearCart: () => void;
   // Order & Internal POS Billing CRUD actions
   createOrder: (payload: {
+    orderNumber?: string;
     clienteNombre: string;
     clienteDireccion: string;
     clienteTelefono?: string;
@@ -167,11 +177,12 @@ function isStockCommitted(estado: EstadoPedido): boolean {
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [products, setProducts] = useState<Producto[]>(INITIAL_PRODUCTS);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [myOrderIds, setMyOrderIds] = useState<string[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
-  const [storeConfig, setStoreConfig] = useState<StoreConfig>(DEFAULT_STORE_CONFIG);
+  const [storeConfig, setStoreConfig] = useState<StoreConfig>(PUBLIC_SAFE_DEFAULT_CONFIG);
   const [plugins, setPlugins] = useState<PluginConnector[]>(INITIAL_PLUGINS);
-  const [notifications, setNotifications] = useState<StoreNotification[]>(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<StoreNotification[]>([]);
   const [activePushToast, setActivePushToast] = useState<StoreNotification | null>(null);
   const [browserPushPermission, setBrowserPushPermission] = useState<
     NotificationPermission | 'unsupported'
@@ -179,9 +190,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
 
-  const knownNotificationIdsRef = useRef<Set<string>>(
-    new Set(INITIAL_NOTIFICATIONS.map((n) => n.id))
-  );
+  const knownNotificationIdsRef = useRef<Set<string>>(new Set());
+  const myOrderIdsRef = useRef<string[]>([]);
 
   // Fire native browser push notification + in-app toast banner
   const dispatchNativeAndInAppPush = useCallback((notif: StoreNotification) => {
@@ -219,7 +229,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Sync with Next.js Backend API (/api/store) and localStorage on mount + periodic poll for live Push Notifications
+  // Sync with Next.js Backend API (/api/store) and customer's own orders on mount + poll
   React.useEffect(() => {
     const rafId =
       typeof window !== 'undefined'
@@ -231,12 +241,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             }
 
             try {
+              // Purge legacy insecure storage keys
+              for (const key of LEGACY_KEYS_TO_PURGE) {
+                localStorage.removeItem(key);
+                sessionStorage.removeItem(key);
+              }
+
               const storedCart = localStorage.getItem(STORAGE_KEY_CART);
               if (storedCart) setCart(JSON.parse(storedCart));
               const storedFavs = localStorage.getItem(STORAGE_KEY_FAVORITES);
               if (storedFavs) setFavorites(JSON.parse(storedFavs));
-              const storedAuth = sessionStorage.getItem(SESSION_KEY_ADMIN_AUTH);
-              if (storedAuth === 'true') setIsAdminAuthenticated(true);
+              const storedMyIds = localStorage.getItem(STORAGE_KEY_MY_ORDER_IDS);
+              if (storedMyIds) {
+                const parsedIds = JSON.parse(storedMyIds);
+                if (Array.isArray(parsedIds)) {
+                  setMyOrderIds(parsedIds);
+                  myOrderIdsRef.current = parsedIds;
+                }
+              }
             } catch (e) {
               console.error(e);
             } finally {
@@ -246,6 +268,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         : 0;
 
     let isMounted = true;
+
+    const handleIncomingNotifications = (
+      incoming: StoreNotification[],
+      isInitial: boolean
+    ) => {
+      setNotifications(incoming);
+      if (isInitial) {
+        incoming.forEach((n) => knownNotificationIdsRef.current.add(n.id));
+      } else {
+        for (const n of incoming) {
+          if (!knownNotificationIdsRef.current.has(n.id)) {
+            knownNotificationIdsRef.current.add(n.id);
+            dispatchNativeAndInAppPush(n);
+          }
+        }
+      }
+    };
 
     const fetchBackendState = async (isInitial: boolean) => {
       try {
@@ -258,48 +297,52 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           setProducts(data.products);
           localStorage.setItem(STORAGE_KEY_PRODUCTS, JSON.stringify(data.products));
         }
-        if (Array.isArray(data.orders)) {
-          setOrders(data.orders);
-          localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(data.orders));
-        }
-        if (data.storeConfig) {
-          setStoreConfig({ ...DEFAULT_STORE_CONFIG, ...data.storeConfig });
-          localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(data.storeConfig));
-        }
-        if (Array.isArray(data.plugins)) {
-          setPlugins(data.plugins);
-          localStorage.setItem(STORAGE_KEY_PLUGINS, JSON.stringify(data.plugins));
-        }
-        if (Array.isArray(data.notifications)) {
-          setNotifications(data.notifications);
-          localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify(data.notifications));
 
-          if (isInitial) {
-            data.notifications.forEach((n: StoreNotification) =>
-              knownNotificationIdsRef.current.add(n.id)
-            );
-          } else {
-            // Check if any new notification arrived from backend (e.g., Admin dispatched an order in another tab)
-            for (const n of data.notifications as StoreNotification[]) {
-              if (!knownNotificationIdsRef.current.has(n.id)) {
-                knownNotificationIdsRef.current.add(n.id);
-                dispatchNativeAndInAppPush(n);
+        if (data.storeConfig) {
+          setStoreConfig({
+            ...PUBLIC_SAFE_DEFAULT_CONFIG,
+            ...data.storeConfig,
+            adminPin: '',
+          });
+        }
+
+        if (data.isAdmin) {
+          setIsAdminAuthenticated(true);
+          if (Array.isArray(data.orders)) {
+            setOrders(data.orders);
+          }
+          if (Array.isArray(data.plugins)) {
+            setPlugins(data.plugins);
+          }
+          if (Array.isArray(data.notifications)) {
+            handleIncomingNotifications(data.notifications, isInitial);
+          }
+        } else {
+          setIsAdminAuthenticated(false);
+          // Public visitor: only poll status for their own placed orders (if any)
+          if (myOrderIdsRef.current.length > 0) {
+            const trackRes = await fetch('/api/orders/track', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ orderIds: myOrderIdsRef.current }),
+            });
+            if (trackRes.ok && isMounted) {
+              const trackData = await trackRes.json();
+              if (Array.isArray(trackData.orders)) {
+                setOrders(trackData.orders);
+              }
+              if (Array.isArray(trackData.notifications)) {
+                handleIncomingNotifications(trackData.notifications, isInitial);
               }
             }
           }
         }
       } catch {
-        // Fallback to localStorage if offline
+        // Fallback to cached catalog if offline
         if (isInitial && typeof window !== 'undefined') {
           try {
             const p = localStorage.getItem(STORAGE_KEY_PRODUCTS);
             if (p) setProducts(JSON.parse(p));
-            const o = localStorage.getItem(STORAGE_KEY_ORDERS);
-            if (o) setOrders(JSON.parse(o));
-            const c = localStorage.getItem(STORAGE_KEY_CONFIG);
-            if (c) setStoreConfig({ ...DEFAULT_STORE_CONFIG, ...JSON.parse(c) });
-            const n = localStorage.getItem(STORAGE_KEY_NOTIFICATIONS);
-            if (n) setNotifications(JSON.parse(n));
           } catch (e) {
             console.error(e);
           }
@@ -340,11 +383,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const markAllNotificationsRead = () => {
     const updated = notifications.map((n) => ({ ...n, leida: true }));
     setNotifications(updated);
-    try {
-      localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
     fetch('/api/store', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -370,10 +408,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const saveOrdersLocal = (newOrders: Order[]) => {
-    setOrders(newOrders);
+  const registerMyOrderId = (orderId: string) => {
+    const nextIds = Array.from(new Set([orderId, ...myOrderIdsRef.current])).slice(0, 25);
+    myOrderIdsRef.current = nextIds;
+    setMyOrderIds(nextIds);
     try {
-      localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(newOrders));
+      localStorage.setItem(STORAGE_KEY_MY_ORDER_IDS, JSON.stringify(nextIds));
     } catch (e) {
       console.error(e);
     }
@@ -383,24 +423,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setFavorites(newFavs);
     try {
       localStorage.setItem(STORAGE_KEY_FAVORITES, JSON.stringify(newFavs));
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const saveConfigLocal = (newCfg: StoreConfig) => {
-    setStoreConfig(newCfg);
-    try {
-      localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(newCfg));
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const saveNotificationsLocal = (newNotifs: StoreNotification[]) => {
-    setNotifications(newNotifs);
-    try {
-      localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify(newNotifs));
     } catch (e) {
       console.error(e);
     }
@@ -445,25 +467,64 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return alerts;
   }, [products]);
 
-  const authenticateAdmin = (pin: string): boolean => {
-    if (pin.trim() === storeConfig.adminPin.trim()) {
-      setIsAdminAuthenticated(true);
-      try {
-        sessionStorage.setItem(SESSION_KEY_ADMIN_AUTH, 'true');
-      } catch (e) {
-        console.error(e);
+  const authenticateAdmin = async (pin: string): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pin.trim() }),
+      });
+      if (!res.ok) {
+        return false;
       }
-      return true;
+      const data = await res.json();
+      if (data.success && data.authenticated) {
+        setIsAdminAuthenticated(true);
+        if (Array.isArray(data.orders)) setOrders(data.orders);
+        if (Array.isArray(data.plugins)) setPlugins(data.plugins);
+        if (Array.isArray(data.notifications)) setNotifications(data.notifications);
+        if (data.storeConfig) {
+          setStoreConfig({
+            ...PUBLIC_SAFE_DEFAULT_CONFIG,
+            ...data.storeConfig,
+            adminPin: '',
+          });
+        }
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('Admin auth error:', e);
+      return false;
     }
-    return false;
   };
 
   const logoutAdmin = () => {
     setIsAdminAuthenticated(false);
+    setOrders([]);
+    setNotifications([]);
+    fetch('/api/auth', { method: 'DELETE' }).catch(() => {});
+  };
+
+  const trackOrderByQuery = async (query: string): Promise<Order[]> => {
     try {
-      sessionStorage.removeItem(SESSION_KEY_ADMIN_AUTH);
-    } catch (e) {
-      console.error(e);
+      const res = await fetch('/api/orders/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderIds: myOrderIdsRef.current,
+          query: query.trim(),
+        }),
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (Array.isArray(data.orders)) {
+        setOrders(data.orders);
+        return data.orders;
+      }
+      return [];
+    } catch {
+      return [];
     }
   };
 
@@ -632,17 +693,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const resetToInitialCatalog = () => {
-    saveProductsLocal(INITIAL_PRODUCTS);
-    saveOrdersLocal(INITIAL_ORDERS);
-    saveConfigLocal(DEFAULT_STORE_CONFIG);
-    saveNotificationsLocal(INITIAL_NOTIFICATIONS);
-    setPlugins(INITIAL_PLUGINS);
-
     fetch('/api/store', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'reset' }),
-    }).catch(() => {});
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && data.db) {
+          saveProductsLocal(data.db.products);
+          setOrders(data.db.orders);
+          setStoreConfig({
+            ...PUBLIC_SAFE_DEFAULT_CONFIG,
+            ...data.db.storeConfig,
+            adminPin: '',
+          });
+          setNotifications(data.db.notifications);
+          setPlugins(data.db.plugins);
+        }
+      })
+      .catch(() => {});
   };
 
   const addToCart = (
@@ -765,24 +835,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const triggerManualPushTest = (order: Order, estado: 'Despachado' | 'Entregado') => {
     const notif = buildClientNotification(order, estado);
     knownNotificationIdsRef.current.add(notif.id);
-    saveNotificationsLocal([notif, ...notifications]);
+    setNotifications([notif, ...notifications]);
     dispatchNativeAndInAppPush(notif);
   };
 
-  // 1. Create order from WhatsApp checkout
+  // 1. Create order from WhatsApp checkout with unified orderNumber
   const createOrder = (payload: {
+    orderNumber?: string;
     clienteNombre: string;
     clienteDireccion: string;
     clienteTelefono?: string;
     referenceUrl?: string;
     notas?: string;
   }): Order => {
-    const orderNum = `#ORD-${Math.floor(1000 + Math.random() * 9000)}`;
+    const orderNum =
+      payload.orderNumber && /^#ORD-\d{4,8}$/.test(payload.orderNumber)
+        ? payload.orderNumber
+        : `#ORD-${Math.floor(1000 + Math.random() * 9000)}`;
     const formattedDate = getFormattedNow();
     const orderItems = [...cart];
+    const orderId = `ord-${Date.now()}`;
 
     const newOrder: Order = {
-      id: `ord-${Date.now()}`,
+      id: orderId,
       orderNumber: orderNum,
       fecha: formattedDate,
       origen: 'WhatsApp',
@@ -801,16 +876,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       stockDeducted: false,
       notas: payload.notas,
       referenceUrl:
-        payload.referenceUrl || `https://store.app/pedido/${orderNum.replace('#', '')}`,
+        payload.referenceUrl || `https://lasanta.store/pedido/${orderNum.replace('#', '')}`,
     };
 
-    saveOrdersLocal([newOrder, ...orders]);
+    registerMyOrderId(newOrder.id);
+    setOrders([newOrder, ...orders]);
     clearCart();
 
     fetch('/api/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        id: newOrder.id,
+        orderNumber: newOrder.orderNumber,
         origen: 'WhatsApp',
         clienteNombre: newOrder.clienteNombre,
         clienteDireccion: newOrder.clienteDireccion,
@@ -823,7 +901,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .then((r) => r.json())
       .then((data) => {
         if (data.success && Array.isArray(data.orders)) {
-          saveOrdersLocal(data.orders);
+          setOrders(data.orders);
+        } else if (data.success && data.order) {
+          registerMyOrderId(data.order.id);
         }
       })
       .catch(() => {});
@@ -900,13 +980,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
 
     saveProductsLocal(stockRes.products);
-    saveOrdersLocal([newInvoiceOrder, ...orders]);
-    saveConfigLocal({ ...storeConfig, nextInvoiceSequence: nextSeq + 1 });
+    setOrders([newInvoiceOrder, ...orders]);
+    setStoreConfig({ ...storeConfig, nextInvoiceSequence: nextSeq + 1 });
 
     if (estadoInicial === 'Despachado' || estadoInicial === 'Entregado') {
       const notif = buildClientNotification(newInvoiceOrder, estadoInicial);
       knownNotificationIdsRef.current.add(notif.id);
-      saveNotificationsLocal([notif, ...notifications]);
+      setNotifications([notif, ...notifications]);
       dispatchNativeAndInAppPush(notif);
     }
 
@@ -914,6 +994,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        id: newInvoiceOrder.id,
         origen: 'POS Interno',
         ...payload,
       }),
@@ -921,9 +1002,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .then((r) => r.json())
       .then((data) => {
         if (data.success && Array.isArray(data.orders)) {
-          saveOrdersLocal(data.orders);
+          setOrders(data.orders);
           if (Array.isArray(data.products)) saveProductsLocal(data.products);
-          if (data.storeConfig) saveConfigLocal(data.storeConfig);
+          if (data.storeConfig) {
+            setStoreConfig({
+              ...PUBLIC_SAFE_DEFAULT_CONFIG,
+              ...data.storeConfig,
+              adminPin: '',
+            });
+          }
         }
       })
       .catch(() => {});
@@ -1055,9 +1142,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
 
     saveProductsLocal(stockRes.products);
-    saveOrdersLocal(orders.map((o) => (o.id === orderId ? updatedOrder : o)));
+    setOrders(orders.map((o) => (o.id === orderId ? updatedOrder : o)));
     if (seqIncremented) {
-      saveConfigLocal({ ...storeConfig, nextInvoiceSequence: nextSeq + 1 });
+      setStoreConfig({ ...storeConfig, nextInvoiceSequence: nextSeq + 1 });
     }
 
     // Trigger Push Notification if status changed to 'Despachado' or 'Entregado'
@@ -1067,7 +1154,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     ) {
       const notif = buildClientNotification(updatedOrder, payload.estado);
       knownNotificationIdsRef.current.add(notif.id);
-      saveNotificationsLocal([notif, ...notifications]);
+      setNotifications([notif, ...notifications]);
       dispatchNativeAndInAppPush(notif);
     }
 
@@ -1079,13 +1166,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .then((r) => r.json())
       .then((data) => {
         if (data.success && Array.isArray(data.orders)) {
-          saveOrdersLocal(data.orders);
+          setOrders(data.orders);
           if (Array.isArray(data.products)) saveProductsLocal(data.products);
           if (Array.isArray(data.notifications)) {
             data.notifications.forEach((n: StoreNotification) =>
               knownNotificationIdsRef.current.add(n.id)
             );
-            saveNotificationsLocal(data.notifications);
+            setNotifications(data.notifications);
           }
         }
       })
@@ -1106,8 +1193,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       saveProductsLocal(stockRes.products);
     }
 
-    saveOrdersLocal(orders.filter((o) => o.id !== orderId));
-    saveNotificationsLocal(notifications.filter((n) => n.orderId !== orderId));
+    setOrders(orders.filter((o) => o.id !== orderId));
+    setNotifications(notifications.filter((n) => n.orderId !== orderId));
 
     fetch(`/api/orders?id=${encodeURIComponent(orderId)}`, {
       method: 'DELETE',
@@ -1151,11 +1238,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         : p
     );
     setPlugins(nextPlugins);
-    try {
-      localStorage.setItem(STORAGE_KEY_PLUGINS, JSON.stringify(nextPlugins));
-    } catch (e) {
-      console.error(e);
-    }
 
     try {
       const res = await fetch('/api/plugins', {
@@ -1173,13 +1255,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateStoreConfig = (configUpdate: Partial<StoreConfig>) => {
-    const nextCfg = { ...storeConfig, ...configUpdate };
-    saveConfigLocal(nextCfg);
+    const nextCfg: StoreConfig = {
+      ...storeConfig,
+      ...configUpdate,
+      adminPin: '',
+    };
+    setStoreConfig(nextCfg);
 
     fetch('/api/store', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ storeConfig: nextCfg }),
+      body: JSON.stringify({
+        storeConfig: {
+          ...storeConfig,
+          ...configUpdate,
+        },
+      }),
     }).catch(() => {});
   };
 
@@ -1200,6 +1291,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         browserPushPermission,
         requestBrowserPushPermission,
         triggerManualPushTest,
+        trackOrderByQuery,
         cartTotalCount,
         cartSubtotal,
         criticalAlerts,

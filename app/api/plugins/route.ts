@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readDb, writeDb, getFormattedNow } from '@/lib/server-db';
+import { isAdminRequest, unauthorizedResponse } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
   const db = readDb();
   return NextResponse.json({ plugins: db.plugins });
 }
 
 export async function PUT(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
+
   try {
     const body = await req.json();
     const db = readDb();

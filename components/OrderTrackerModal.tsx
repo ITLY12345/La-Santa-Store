@@ -104,10 +104,12 @@ export function OrderTrackerModal({ isOpen, onClose }: OrderTrackerModalProps) {
     browserPushPermission,
     requestBrowserPushPermission,
     triggerManualPushTest,
+    trackOrderByQuery,
   } = useStore();
 
   const [activeView, setActiveView] = useState<'notifications' | 'tracking'>('notifications');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
   const [pushRequestStatus, setPushRequestStatus] = useState<string | null>(null);
 
   const filteredOrders = useMemo(() => {
@@ -117,12 +119,20 @@ export function OrderTrackerModal({ isOpen, onClose }: OrderTrackerModalProps) {
       (o) =>
         o.orderNumber.toLowerCase().includes(q) ||
         (o.invoiceNumber && o.invoiceNumber.toLowerCase().includes(q)) ||
-        o.clienteNombre.toLowerCase().includes(q) ||
-        o.clienteTelefono.toLowerCase().includes(q)
+        (o.guiaSeguimiento && o.guiaSeguimiento.toLowerCase().includes(q)) ||
+        o.clienteNombre.toLowerCase().includes(q)
     );
   }, [orders, searchQuery]);
 
   if (!isOpen) return null;
+
+  const handleSearchSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setIsSearching(true);
+    await trackOrderByQuery(searchQuery);
+    setIsSearching(false);
+  };
 
   const handleEnablePush = async () => {
     const granted = await requestBrowserPushPermission();
@@ -221,17 +231,19 @@ export function OrderTrackerModal({ isOpen, onClose }: OrderTrackerModalProps) {
                 Activar Push
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  if (orders[0]) {
-                    triggerManualPushTest(orders[0], 'Despachado');
-                  }
-                }}
-                className="px-3.5 py-1.5 rounded-full bg-white border border-zinc-200 text-[#111111] text-[11px] font-bold hover:bg-zinc-100 transition shrink-0"
-              >
-                Probar Alerta
-              </button>
+              orders[0] && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (orders[0]) {
+                      triggerManualPushTest(orders[0], 'Despachado');
+                    }
+                  }}
+                  className="px-3.5 py-1.5 rounded-full bg-white border border-zinc-200 text-[#111111] text-[11px] font-bold hover:bg-zinc-100 transition shrink-0"
+                >
+                  Probar Alerta
+                </button>
+              )
             )}
           </div>
 
@@ -339,94 +351,115 @@ export function OrderTrackerModal({ isOpen, onClose }: OrderTrackerModalProps) {
           ) : (
             <div className="space-y-3">
               {/* Search Order Box */}
-              <div className="relative">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar por #ORD-1001, FAC-1001, nombre o teléfono..."
-                  className="w-full bg-[#F5F5F7] rounded-full pl-10 pr-4 py-2.5 text-xs text-[#111111] placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-[#111111]"
-                />
-              </div>
+              <form onSubmit={handleSearchSubmit} className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Ingresa tu código #ORD-1001, FAC-1001 o guía..."
+                    className="w-full bg-[#F5F5F7] rounded-full pl-10 pr-4 py-2.5 text-xs text-[#111111] placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-[#111111]"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isSearching}
+                  className="px-4 py-2.5 rounded-full bg-[#111111] text-white text-xs font-bold hover:bg-zinc-800 transition shrink-0"
+                >
+                  {isSearching ? 'Buscando...' : 'Consultar'}
+                </button>
+              </form>
 
-              {filteredOrders.map((ord) => {
-                const step = getStepIndex(ord.estado);
-                return (
-                  <div
-                    key={ord.id}
-                    className="p-4 rounded-3xl bg-[#F5F5F7] space-y-3 text-xs"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span className="font-mono font-extrabold text-[#111111] text-sm">
-                          {ord.orderNumber}{' '}
-                          {ord.invoiceNumber ? `· ${ord.invoiceNumber}` : ''}
+              {filteredOrders.length === 0 ? (
+                <div className="py-10 text-center bg-[#F5F5F7] rounded-3xl p-6 space-y-1.5">
+                  <Package className="w-6 h-6 text-zinc-400 mx-auto" />
+                  <p className="text-xs font-bold text-[#111111]">
+                    Consulta el estado de tu pedido
+                  </p>
+                  <p className="text-[11px] text-zinc-500 max-w-xs mx-auto">
+                    Ingresa tu número de orden (ej. <strong>#ORD-1001</strong>) o factura oficial (<strong>FAC-1001</strong>) y presiona Consultar.
+                  </p>
+                </div>
+              ) : (
+                filteredOrders.map((ord) => {
+                  const step = getStepIndex(ord.estado);
+                  return (
+                    <div
+                      key={ord.id}
+                      className="p-4 rounded-3xl bg-[#F5F5F7] space-y-3 text-xs"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="font-mono font-extrabold text-[#111111] text-sm">
+                            {ord.orderNumber}{' '}
+                            {ord.invoiceNumber ? `· ${ord.invoiceNumber}` : ''}
+                          </span>
+                          <p className="font-bold text-[#111111] mt-0.5">
+                            {ord.clienteNombre}
+                          </p>
+                          <p className="text-[11px] text-zinc-500 flex items-center gap-1 mt-0.5">
+                            <MapPin className="w-3 h-3 shrink-0" />
+                            <span>{ord.clienteDireccion}</span>
+                          </p>
+                        </div>
+
+                        <span
+                          className={`px-3 py-1 rounded-full text-[11px] font-bold ${
+                            ord.estado === 'Entregado'
+                              ? 'bg-emerald-600 text-white'
+                              : ord.estado === 'Despachado'
+                              ? 'bg-[#111111] text-white'
+                              : ord.estado === 'Cancelado'
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-white text-[#111111] border border-zinc-200'
+                          }`}
+                        >
+                          {ord.estado}
                         </span>
-                        <p className="font-bold text-[#111111] mt-0.5">
-                          {ord.clienteNombre}
-                        </p>
-                        <p className="text-[11px] text-zinc-500 flex items-center gap-1 mt-0.5">
-                          <MapPin className="w-3 h-3 shrink-0" />
-                          <span>{ord.clienteDireccion}</span>
-                        </p>
                       </div>
 
-                      <span
-                        className={`px-3 py-1 rounded-full text-[11px] font-bold ${
-                          ord.estado === 'Entregado'
-                            ? 'bg-emerald-600 text-white'
-                            : ord.estado === 'Despachado'
-                            ? 'bg-[#111111] text-white'
-                            : ord.estado === 'Cancelado'
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-white text-[#111111] border border-zinc-200'
-                        }`}
-                      >
-                        {ord.estado}
-                      </span>
-                    </div>
+                      {/* 4-Step Visual Progress Bar */}
+                      {ord.estado !== 'Cancelado' && (
+                        <div className="grid grid-cols-4 gap-1.5 pt-1">
+                          {[
+                            { idx: 1, label: 'Pendiente', icon: Clock },
+                            { idx: 2, label: 'Facturado', icon: Receipt },
+                            { idx: 3, label: 'Despachado', icon: Truck },
+                            { idx: 4, label: 'Entregado', icon: Package },
+                          ].map((st) => {
+                            const active = step >= st.idx;
+                            const IconComp = st.icon;
+                            return (
+                              <div
+                                key={st.idx}
+                                className={`p-2 rounded-2xl text-center flex flex-col items-center gap-1 ${
+                                  active
+                                    ? 'bg-[#111111] text-white'
+                                    : 'bg-white text-zinc-400'
+                                }`}
+                              >
+                                <IconComp className="w-3.5 h-3.5" />
+                                <span className="text-[10px] font-bold">{st.label}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
 
-                    {/* 4-Step Visual Progress Bar */}
-                    {ord.estado !== 'Cancelado' && (
-                      <div className="grid grid-cols-4 gap-1.5 pt-1">
-                        {[
-                          { idx: 1, label: 'Pendiente', icon: Clock },
-                          { idx: 2, label: 'Facturado', icon: Receipt },
-                          { idx: 3, label: 'Despachado', icon: Truck },
-                          { idx: 4, label: 'Entregado', icon: Package },
-                        ].map((st) => {
-                          const active = step >= st.idx;
-                          const IconComp = st.icon;
-                          return (
-                            <div
-                              key={st.idx}
-                              className={`p-2 rounded-2xl text-center flex flex-col items-center gap-1 ${
-                                active
-                                  ? 'bg-[#111111] text-white'
-                                  : 'bg-white text-zinc-400'
-                              }`}
-                            >
-                              <IconComp className="w-3.5 h-3.5" />
-                              <span className="text-[10px] font-bold">{st.label}</span>
-                            </div>
-                          );
-                        })}
+                      <div className="pt-2 border-t border-zinc-200 flex items-center justify-between text-[11px] text-zinc-500">
+                        <span>
+                          {ord.items.reduce((a, b) => a + b.cantidad, 0)} prendas · Origen:{' '}
+                          <strong className="text-[#111111]">{ord.origen}</strong>
+                        </span>
+                        <span className="font-extrabold text-[#111111] tabular-nums text-xs">
+                          {formatCOP(ord.total)}
+                        </span>
                       </div>
-                    )}
-
-                    <div className="pt-2 border-t border-zinc-200 flex items-center justify-between text-[11px] text-zinc-500">
-                      <span>
-                        {ord.items.reduce((a, b) => a + b.cantidad, 0)} prendas · Origen:{' '}
-                        <strong className="text-[#111111]">{ord.origen}</strong>
-                      </span>
-                      <span className="font-extrabold text-[#111111] tabular-nums text-xs">
-                        {formatCOP(ord.total)}
-                      </span>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           )}
         </div>

@@ -7,9 +7,17 @@ import {
   reconcileStockItems,
   createOrderStatusNotification,
 } from '@/lib/server-db';
-import { Order, formatCOP, EstadoPedido } from '@/lib/data';
+import { Order, formatCOP, EstadoPedido, CartItem } from '@/lib/data';
+import {
+  isAdminRequest,
+  unauthorizedResponse,
+  sanitizePublicStoreConfig,
+} from '@/lib/auth';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
   const db = readDb();
   return NextResponse.json({
     orders: db.orders,
@@ -22,9 +30,14 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const db = readDb();
     const formattedDate = getFormattedNow();
+    const isAdmin = isAdminRequest(req);
 
-    // Case 1: Direct POS Invoice Creation (Deducts stock immediately)
+    // Case 1: Direct POS Invoice Creation (Deducts stock immediately - Admin only)
     if (body.origen === 'POS Interno') {
+      if (!isAdmin) {
+        return unauthorizedResponse();
+      }
+
       const items = body.items || [];
       if (items.length === 0) {
         return NextResponse.json(
@@ -56,7 +69,7 @@ export async function POST(req: NextRequest) {
       const total = Math.max(0, subtotal + envio - descuento);
 
       const newOrder: Order = {
-        id: `pos-${Date.now()}`,
+        id: typeof body.id === 'string' && body.id.startsWith('pos-') ? body.id : `pos-${Date.now()}`,
         orderNumber: orderNum,
         invoiceNumber: invoiceNum,
         fecha: formattedDate,
@@ -103,29 +116,70 @@ export async function POST(req: NextRequest) {
         order: newOrder,
         products: saved.products,
         orders: saved.orders,
-        storeConfig: saved.storeConfig,
+        storeConfig: sanitizePublicStoreConfig(saved.storeConfig),
         notifications: saved.notifications,
       });
     }
 
     // Case 2: Customer WhatsApp Order Creation (Starts as Pendiente)
-    const items = body.items || [];
-    const subtotal = items.reduce(
-      (acc: number, it: { precio: number; cantidad: number }) => acc + it.precio * it.cantidad,
+    const rawItems: CartItem[] = Array.isArray(body.items) ? body.items : [];
+    if (rawItems.length === 0) {
+      return NextResponse.json(
+        { success: false, message: 'El pedido debe incluir al menos un producto.' },
+        { status: 400 }
+      );
+    }
+
+    // Verify prices against server catalog to prevent client-side price tampering
+    const verifiedItems: CartItem[] = rawItems.map((it) => {
+      const serverProd = db.products.find((p) => p.id === it.productoId);
+      const unitPrice = serverProd ? serverProd.precio_base : Math.max(0, Number(it.precio) || 0);
+      const qty = Math.max(1, Math.min(99, Math.floor(Number(it.cantidad) || 1)));
+      return {
+        ...it,
+        precio: unitPrice,
+        cantidad: qty,
+      };
+    });
+
+    const subtotal = verifiedItems.reduce(
+      (acc, it) => acc + it.precio * it.cantidad,
       0
     );
-    const orderNum = `#ORD-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    // Unify orderNumber between client WhatsApp link and backend database
+    const requestedOrderNum =
+      typeof body.orderNumber === 'string' && /^#ORD-\d{4,8}$/.test(body.orderNumber.trim())
+        ? body.orderNumber.trim()
+        : null;
+    const isCollision =
+      requestedOrderNum && db.orders.some((o) => o.orderNumber === requestedOrderNum);
+    const orderNum =
+      requestedOrderNum && !isCollision
+        ? requestedOrderNum
+        : `#ORD-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const requestedId =
+      typeof body.id === 'string' && /^ord-[\w-]+$/.test(body.id.trim())
+        ? body.id.trim()
+        : null;
+    const orderId =
+      requestedId && !db.orders.some((o) => o.id === requestedId)
+        ? requestedId
+        : `ord-${Date.now()}`;
 
     const newOrder: Order = {
-      id: `ord-${Date.now()}`,
+      id: orderId,
       orderNumber: orderNum,
       fecha: formattedDate,
       origen: 'WhatsApp',
-      clienteNombre: (body.clienteNombre || 'Cliente WhatsApp').trim(),
-      clienteDocumento: (body.clienteDocumento || '').trim(),
-      clienteDireccion: (body.clienteDireccion || 'Cartagena de Indias · Por confirmar').trim(),
-      clienteTelefono: (body.clienteTelefono || '').trim(),
-      items,
+      clienteNombre: (body.clienteNombre || 'Cliente WhatsApp').trim().slice(0, 120),
+      clienteDocumento: (body.clienteDocumento || '').trim().slice(0, 40),
+      clienteDireccion: (body.clienteDireccion || 'Cartagena de Indias · Por confirmar')
+        .trim()
+        .slice(0, 200),
+      clienteTelefono: (body.clienteTelefono || '').trim().slice(0, 40),
+      items: verifiedItems,
       subtotal,
       costoEnvio: 0,
       descuentoManual: 0,
@@ -134,17 +188,18 @@ export async function POST(req: NextRequest) {
       estado: 'Pendiente',
       metodoPagoInterno: 'Por definir',
       stockDeducted: false,
-      notas: body.notas || '',
+      notas: typeof body.notas === 'string' ? body.notas.slice(0, 500) : '',
       referenceUrl:
-        body.referenceUrl || `https://store.app/pedido/${orderNum.replace('#', '')}`,
+        body.referenceUrl || `https://lasanta.store/pedido/${orderNum.replace('#', '')}`,
     };
 
     db.orders = [newOrder, ...db.orders];
     const saved = writeDb(db);
+
     return NextResponse.json({
       success: true,
       order: newOrder,
-      orders: saved.orders,
+      ...(isAdmin ? { orders: saved.orders } : {}),
     });
   } catch (err) {
     console.error('POST /api/orders error:', err);
@@ -156,6 +211,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
+
   try {
     const body = await req.json();
     const db = readDb();
@@ -302,7 +361,7 @@ export async function PUT(req: NextRequest) {
       createdNotification,
       products: saved.products,
       orders: saved.orders,
-      storeConfig: saved.storeConfig,
+      storeConfig: sanitizePublicStoreConfig(saved.storeConfig),
       notifications: saved.notifications,
     });
   } catch (err) {
@@ -315,6 +374,10 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');

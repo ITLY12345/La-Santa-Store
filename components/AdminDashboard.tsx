@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @next/next/no-img-element */
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
@@ -159,7 +160,7 @@ export function AdminDashboard() {
   const [newPhone, setNewPhone] = useState(storeConfig.storePhone);
   const [newAddress, setNewAddress] = useState(storeConfig.storeAddress);
   const [newTagline, setNewTagline] = useState(storeConfig.corporateTagline);
-  const [newPin, setNewPin] = useState(storeConfig.adminPin);
+  const [newPin, setNewPin] = useState('');
   const [settingsSuccess, setSettingsSuccess] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
 
@@ -168,9 +169,10 @@ export function AdminDashboard() {
     setTimeout(() => setAdminToastMsg(null), 4000);
   };
 
-  const handlePinSubmit = (e: React.FormEvent) => {
+  const handlePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (authenticateAdmin(pinInput)) {
+    const ok = await authenticateAdmin(pinInput);
+    if (ok) {
       setPinError(false);
       setPinInput('');
     } else {
@@ -592,8 +594,9 @@ export function AdminDashboard() {
       storeAddress:
         newAddress.trim() || 'Cartagena de Indias, Colombia · Despachos Nacionales',
       corporateTagline: newTagline.trim(),
-      adminPin: newPin.trim(),
+      ...(newPin.trim().length >= 4 ? { adminPin: newPin.trim() } : {}),
     });
+    setNewPin('');
     setSettingsSuccess(true);
     setTimeout(() => setSettingsSuccess(false), 3000);
   };

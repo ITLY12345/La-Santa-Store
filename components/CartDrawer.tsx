@@ -11,7 +11,6 @@ import {
   ShoppingBag,
   User,
   MapPin,
-  Bell,
   Phone,
 } from 'lucide-react';
 
@@ -21,7 +20,7 @@ interface CartDrawerProps {
   onOpenTracker?: () => void;
 }
 
-export function CartDrawer({ isOpen, onClose, onOpenTracker }: CartDrawerProps) {
+export function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   const {
     cart,
     cartTotalCount,
@@ -53,8 +52,9 @@ export function CartDrawer({ isOpen, onClose, onOpenTracker }: CartDrawerProps) 
       await requestBrowserPushPermission();
     }
 
-    const orderNumCode = `ORD-${Date.now().toString().slice(-6)}`;
-    const refUrl = `https://lasanta.store/pedido/${orderNumCode}`;
+    const randomDigits = Math.floor(1000 + Math.random() * 9000);
+    const orderNumCode = `#ORD-${randomDigits}`;
+    const refUrl = `https://lasanta.store/pedido/ORD-${randomDigits}`;
 
     const { waLink } = generateWhatsAppMessage(
       {
@@ -70,6 +70,7 @@ export function CartDrawer({ isOpen, onClose, onOpenTracker }: CartDrawerProps) 
     );
 
     const created = createOrder({
+      orderNumber: orderNumCode,
       clienteNombre,
       clienteDireccion: clienteDireccion.trim() || storeConfig.storeCity,
       clienteTelefono,

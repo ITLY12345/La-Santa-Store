@@ -8,12 +8,21 @@ import {
   createOrderStatusNotification,
 } from '@/lib/server-db';
 import { Order, formatCOP, EstadoPedido } from '@/lib/data';
+import {
+  isAdminRequest,
+  unauthorizedResponse,
+  sanitizePublicStoreConfig,
+} from '@/lib/auth';
 
 /**
  * GET /api/billing
  * List all invoices, billing records, summary metrics and internal dispatch statuses
  */
 export async function GET(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const estado = searchParams.get('estado');
@@ -37,7 +46,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Key financial metrics for internal POS billing control
     const totalVentas = db.orders
       .filter((o) => o.estado !== 'Cancelado')
       .reduce((sum, o) => sum + o.total, 0);
@@ -76,6 +84,10 @@ export async function GET(req: NextRequest) {
  * Create a new official POS invoice with stock reconciliation
  */
 export async function POST(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
+
   try {
     const body = await req.json();
     const db = readDb();
@@ -92,7 +104,6 @@ export async function POST(req: NextRequest) {
     const estadoInicial: EstadoPedido = body.estado || 'Facturado';
     const shouldDeduct = isStockCommittedState(estadoInicial);
 
-    // Reconcile and deduct product stock
     const stockResult = reconcileStockItems(db.products, [], false, items, shouldDeduct);
     if (!stockResult.success) {
       return NextResponse.json(
@@ -149,7 +160,6 @@ export async function POST(req: NextRequest) {
     db.orders = [newInvoice, ...db.orders];
     db.storeConfig.nextInvoiceSequence = nextSeq + 1;
 
-    // Internal status notification for dispatch tracking
     if (estadoInicial === 'Despachado' || estadoInicial === 'Entregado') {
       const notif = createOrderStatusNotification(newInvoice, estadoInicial);
       db.notifications = [notif, ...db.notifications];
@@ -161,7 +171,7 @@ export async function POST(req: NextRequest) {
       invoice: newInvoice,
       products: saved.products,
       invoices: saved.orders,
-      storeConfig: saved.storeConfig,
+      storeConfig: sanitizePublicStoreConfig(saved.storeConfig),
     });
   } catch (err) {
     console.error('POST /api/billing error:', err);
@@ -177,6 +187,10 @@ export async function POST(req: NextRequest) {
  * Modify an existing invoice (items, quantities, client info, dispatch carrier/tracking, discount)
  */
 export async function PUT(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
+
   try {
     const body = await req.json();
     const db = readDb();
@@ -205,7 +219,6 @@ export async function PUT(req: NextRequest) {
 
     const shouldDeductNext = isStockCommittedState(nextEstado);
 
-    // Reconcile inventory changes
     const stockRes = reconcileStockItems(
       db.products,
       existingInvoice.items,
@@ -334,6 +347,10 @@ export async function PUT(req: NextRequest) {
  * Delete or void an invoice, automatically restoring deducted inventory items
  */
 export async function DELETE(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
@@ -353,7 +370,6 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Restore stock back to products if stock was committed
     if (target.stockDeducted) {
       const stockRes = reconcileStockItems(db.products, target.items, true, [], false);
       db.products = stockRes.products;

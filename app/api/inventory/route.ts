@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readDb, writeDb, reconcileStockItems } from '@/lib/server-db';
-import { Producto, Variante } from '@/lib/data';
+import { readDb, writeDb } from '@/lib/server-db';
+import { isAdminRequest, unauthorizedResponse } from '@/lib/auth';
 
 /**
  * GET /api/inventory
  * Retrieves inventory matrix, stock levels by variant, low-stock alerts and valuations
  */
 export async function GET(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const categoria = searchParams.get('categoria');
@@ -36,7 +40,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Calculate inventory valuation and total units
     let totalUnidades = 0;
     let valoracionInventario = 0;
     let itemsAgotados = 0;
@@ -77,6 +80,10 @@ export async function GET(req: NextRequest) {
  * Quick updates for stock quantities and thresholds across variants
  */
 export async function PUT(req: NextRequest) {
+  if (!isAdminRequest(req)) {
+    return unauthorizedResponse();
+  }
+
   try {
     const body = await req.json();
     const { action, productoId, varianteId, newStock, newThreshold } = body;

@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import {
   Producto,
@@ -15,7 +16,22 @@ import {
   INITIAL_NOTIFICATIONS,
 } from './data';
 
-const DB_FILE_PATH = path.join('/tmp', 'lasanta_store_db_v5.json');
+const PRIMARY_DATA_DIR = path.join(process.cwd(), 'data');
+const PRIMARY_DB_PATH = path.join(PRIMARY_DATA_DIR, 'lasanta_store_db_v5.json');
+const FALLBACK_DB_PATH = path.join(os.tmpdir(), 'lasanta_store_db_v5.json');
+
+let memoryDbCache: ServerDatabase | null = null;
+
+function resolveDbFilePath(): string {
+  try {
+    if (!fs.existsSync(PRIMARY_DATA_DIR)) {
+      fs.mkdirSync(PRIMARY_DATA_DIR, { recursive: true });
+    }
+    return PRIMARY_DB_PATH;
+  } catch {
+    return FALLBACK_DB_PATH;
+  }
+}
 
 export interface ServerDatabase {
   products: Producto[];
@@ -51,36 +67,64 @@ export function getInitialDb(): ServerDatabase {
 }
 
 export function readDb(): ServerDatabase {
+  const dbPath = resolveDbFilePath();
   try {
-    if (fs.existsSync(DB_FILE_PATH)) {
-      const raw = fs.readFileSync(DB_FILE_PATH, 'utf-8');
+    if (fs.existsSync(dbPath)) {
+      const raw = fs.readFileSync(dbPath, 'utf-8');
       const parsed = JSON.parse(raw) as Partial<ServerDatabase>;
-      return {
-        products: parsed.products || INITIAL_PRODUCTS,
-        orders: parsed.orders || INITIAL_ORDERS,
+      const loaded: ServerDatabase = {
+        products: Array.isArray(parsed.products) ? parsed.products : INITIAL_PRODUCTS,
+        orders: Array.isArray(parsed.orders) ? parsed.orders : INITIAL_ORDERS,
         storeConfig: { ...DEFAULT_STORE_CONFIG, ...(parsed.storeConfig || {}) },
-        plugins: parsed.plugins || INITIAL_PLUGINS,
-        notifications: parsed.notifications || INITIAL_NOTIFICATIONS,
+        plugins: Array.isArray(parsed.plugins) ? parsed.plugins : INITIAL_PLUGINS,
+        notifications: Array.isArray(parsed.notifications)
+          ? parsed.notifications
+          : INITIAL_NOTIFICATIONS,
         updatedAt: parsed.updatedAt || new Date().toISOString(),
       };
+      memoryDbCache = loaded;
+      return loaded;
     }
   } catch (err) {
-    console.error('Error reading server DB, initializing fresh state:', err);
+    console.error('Error reading server DB, using cache or initializing fresh state:', err);
+    if (memoryDbCache) {
+      return JSON.parse(JSON.stringify(memoryDbCache));
+    }
   }
   const initial = getInitialDb();
   writeDb(initial);
   return initial;
 }
 
+/**
+ * Atomically persists database to disk using write-then-rename to prevent corruption
+ * under concurrent requests.
+ */
 export function writeDb(db: ServerDatabase): ServerDatabase {
-  const updated = {
+  const updated: ServerDatabase = {
     ...db,
     updatedAt: new Date().toISOString(),
   };
+  memoryDbCache = JSON.parse(JSON.stringify(updated));
+
+  const dbPath = resolveDbFilePath();
+  const tempPath = `${dbPath}.${process.pid}.${Date.now()}.tmp`;
+
   try {
-    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(updated, null, 2), 'utf-8');
+    const serialized = JSON.stringify(updated, null, 2);
+    fs.writeFileSync(tempPath, serialized, 'utf-8');
+    fs.renameSync(tempPath, dbPath);
   } catch (err) {
-    console.error('Error writing server DB:', err);
+    try {
+      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    } catch {
+      // ignore cleanup error
+    }
+    try {
+      fs.writeFileSync(dbPath, JSON.stringify(updated, null, 2), 'utf-8');
+    } catch (fallbackErr) {
+      console.error('Error writing server DB:', fallbackErr);
+    }
   }
   return updated;
 }
@@ -96,7 +140,6 @@ export function reconcileStockItems(
   newItems: CartItem[],
   newDeducted: boolean
 ): { success: boolean; products: Producto[]; errorMessage?: string } {
-  // Clone products
   const nextProducts: Producto[] = JSON.parse(JSON.stringify(products));
 
   // 1. If old items were deducted, restore them first to get the available baseline
