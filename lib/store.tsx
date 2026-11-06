@@ -52,6 +52,7 @@ interface StoreContextType {
   cartTotalCount: number;
   cartSubtotal: number;
   criticalAlerts: CriticalAlertItem[];
+  isHydrated: boolean;
   isAdminAuthenticated: boolean;
   authenticateAdmin: (pin: string) => boolean;
   logoutAdmin: () => void;
@@ -167,7 +168,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [products, setProducts] = useState<Producto[]>(INITIAL_PRODUCTS);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
-  const [favorites, setFavorites] = useState<string[]>(['prod-001', 'prod-002']);
+  const [favorites, setFavorites] = useState<string[]>([]);
   const [storeConfig, setStoreConfig] = useState<StoreConfig>(DEFAULT_STORE_CONFIG);
   const [plugins, setPlugins] = useState<PluginConnector[]>(INITIAL_PLUGINS);
   const [notifications, setNotifications] = useState<StoreNotification[]>(INITIAL_NOTIFICATIONS);
@@ -176,6 +177,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     NotificationPermission | 'unsupported'
   >('default');
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+  const [isHydrated, setIsHydrated] = useState<boolean>(false);
 
   const knownNotificationIdsRef = useRef<Set<string>>(
     new Set(INITIAL_NOTIFICATIONS.map((n) => n.id))
@@ -237,6 +239,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               if (storedAuth === 'true') setIsAdminAuthenticated(true);
             } catch (e) {
               console.error(e);
+            } finally {
+              setIsHydrated(true);
             }
           })
         : 0;
@@ -1199,6 +1203,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         cartTotalCount,
         cartSubtotal,
         criticalAlerts,
+        isHydrated,
         isAdminAuthenticated,
         authenticateAdmin,
         logoutAdmin,

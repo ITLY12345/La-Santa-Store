@@ -16,7 +16,7 @@ export function Header({
   activeNavTab = 'home',
   setActiveNavTab,
 }: HeaderProps) {
-  const { cartTotalCount, favorites } = useStore();
+  const { cartTotalCount, favorites, isHydrated } = useStore();
 
   return (
     <header className="sticky top-0 z-30 w-full bg-white/95 backdrop-blur-xl border-b border-zinc-100">
@@ -71,7 +71,7 @@ export function Header({
                   activeNavTab === 'favorites' ? 'fill-white text-white' : ''
                 }`}
               />
-              {favorites.length > 0 && (
+              {isHydrated && favorites.length > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-[#111111] text-white border border-white text-[10px] font-bold flex items-center justify-center tabular-nums">
                   {favorites.length}
                 </span>
@@ -88,7 +88,7 @@ export function Header({
             title="Abrir Carrito"
           >
             <ShoppingBag className="w-4 h-4 text-white" />
-            {cartTotalCount > 0 && (
+            {isHydrated && cartTotalCount > 0 && (
               <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-white text-[#111111] border border-[#111111] text-[10px] font-black flex items-center justify-center tabular-nums">
                 {cartTotalCount}
               </span>

@@ -34,6 +34,7 @@ export default function Home() {
     cartSubtotal,
     storeConfig,
     criticalAlerts,
+    isHydrated,
   } = useStore();
 
   // Navigation tab ('home' | 'favorites')
@@ -375,7 +376,7 @@ export default function Home() {
                     activeNavTab === 'favorites' ? 'fill-white text-white' : ''
                   }`}
                 />
-                <span>Favoritos ({favorites.length})</span>
+                <span>Favoritos ({isHydrated ? favorites.length : 0})</span>
               </button>
             </div>
           </div>
@@ -489,9 +490,9 @@ export default function Home() {
           >
             <ShoppingBag className="w-4 h-4" />
             <span className="tabular-nums">
-              {cartTotalCount > 0 ? formatCOP(cartSubtotal) : 'Carrito'}
+              {isHydrated && cartTotalCount > 0 ? formatCOP(cartSubtotal) : 'Carrito'}
             </span>
-            {cartTotalCount > 0 && (
+            {isHydrated && cartTotalCount > 0 && (
               <span className="w-5 h-5 rounded-full bg-[#111111] text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
                 {cartTotalCount}
               </span>
