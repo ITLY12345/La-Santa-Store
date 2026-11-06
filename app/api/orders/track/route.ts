@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readDb } from '@/lib/server-db';
+import { readDbAsync } from '@/lib/server-db';
 import { Order } from '@/lib/data';
-import { isAdminRequest } from '@/lib/auth';
+import { isAdminRequest, getClientIp, checkEndpointRateLimit } from '@/lib/auth';
 
 function maskOrderForPublic(order: Order): Order {
   const parts = (order.clienteNombre || '').trim().split(/\s+/);
@@ -27,12 +27,21 @@ function maskOrderForPublic(order: Order): Order {
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req);
+    const rate = checkEndpointRateLimit('order_track', ip, 30, 5 * 60 * 1000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { success: false, message: 'Demasiadas consultas seguidas. Intenta de nuevo en unos segundos.' },
+        { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } }
+      );
+    }
+
     const body = await req.json();
-    const orderIds: string[] = Array.isArray(body?.orderIds) ? body.orderIds : [];
+    const orderIds: string[] = Array.isArray(body?.orderIds) ? body.orderIds.slice(0, 25) : [];
     const query: string = typeof body?.query === 'string' ? body.query.trim().toLowerCase() : '';
     const isAdmin = isAdminRequest(req);
 
-    const db = readDb();
+    const db = await readDbAsync();
 
     if (isAdmin) {
       return NextResponse.json({
@@ -79,4 +88,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

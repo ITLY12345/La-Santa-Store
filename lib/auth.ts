@@ -5,9 +5,34 @@ import { StoreConfig } from './data';
 export const ADMIN_COOKIE_NAME = 'lasanta_admin_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
+// Anti-Brute-Force Rate Limiter (Max 5 failed PIN attempts per 15 min window per IP)
+const MAX_PIN_ATTEMPTS = 5;
+const LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
+
+interface RateLimitEntry {
+  attempts: number;
+  firstAttemptAt: number;
+  lockedUntil: number;
+}
+
+interface EndpointBucketEntry {
+  count: number;
+  windowStart: number;
+}
+
 const globalForAuth = globalThis as unknown as {
   __lasantaEphemeralSecret?: string;
+  __lasantaRateLimitMap?: Map<string, RateLimitEntry>;
+  __lasantaEndpointBuckets?: Map<string, EndpointBucketEntry>;
 };
+
+const rateLimitMap =
+  globalForAuth.__lasantaRateLimitMap ||
+  (globalForAuth.__lasantaRateLimitMap = new Map<string, RateLimitEntry>());
+
+const endpointBuckets =
+  globalForAuth.__lasantaEndpointBuckets ||
+  (globalForAuth.__lasantaEndpointBuckets = new Map<string, EndpointBucketEntry>());
 
 function getServerSecret(): string {
   const configured = process.env.AUTH_SECRET?.trim();
@@ -18,6 +43,98 @@ function getServerSecret(): string {
     globalForAuth.__lasantaEphemeralSecret = crypto.randomBytes(32).toString('hex');
   }
   return globalForAuth.__lasantaEphemeralSecret;
+}
+
+export function getClientIp(req: NextRequest): string {
+  const forwarded = req.headers.get('x-forwarded-for');
+  if (forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.headers.get('x-real-ip')?.trim() || '127.0.0.1';
+}
+
+export function checkPinRateLimit(ip: string): {
+  allowed: boolean;
+  retryAfterSeconds: number;
+  remainingAttempts: number;
+} {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+
+  if (!entry) {
+    return { allowed: true, retryAfterSeconds: 0, remainingAttempts: MAX_PIN_ATTEMPTS };
+  }
+
+  if (entry.lockedUntil > now) {
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.ceil((entry.lockedUntil - now) / 1000),
+      remainingAttempts: 0,
+    };
+  }
+
+  if (now - entry.firstAttemptAt > LOCKOUT_WINDOW_MS) {
+    rateLimitMap.delete(ip);
+    return { allowed: true, retryAfterSeconds: 0, remainingAttempts: MAX_PIN_ATTEMPTS };
+  }
+
+  return {
+    allowed: true,
+    retryAfterSeconds: 0,
+    remainingAttempts: Math.max(0, MAX_PIN_ATTEMPTS - entry.attempts),
+  };
+}
+
+export function recordPinAttempt(ip: string, success: boolean): void {
+  if (success) {
+    rateLimitMap.delete(ip);
+    return;
+  }
+  const now = Date.now();
+  const current = rateLimitMap.get(ip);
+  if (!current || now - current.firstAttemptAt > LOCKOUT_WINDOW_MS) {
+    rateLimitMap.set(ip, {
+      attempts: 1,
+      firstAttemptAt: now,
+      lockedUntil: 0,
+    });
+    return;
+  }
+
+  const nextAttempts = current.attempts + 1;
+  rateLimitMap.set(ip, {
+    ...current,
+    attempts: nextAttempts,
+    lockedUntil: nextAttempts >= MAX_PIN_ATTEMPTS ? now + LOCKOUT_WINDOW_MS : 0,
+  });
+}
+
+/**
+ * Generic IP rate limiter for public endpoints (e.g. POST /api/orders, POST /api/orders/track).
+ */
+export function checkEndpointRateLimit(
+  bucketName: string,
+  ip: string,
+  maxRequests: number,
+  windowMs: number
+): { allowed: boolean; retryAfterSeconds: number } {
+  const now = Date.now();
+  const key = `${bucketName}:${ip}`;
+  const current = endpointBuckets.get(key);
+
+  if (!current || now - current.windowStart > windowMs) {
+    endpointBuckets.set(key, { count: 1, windowStart: now });
+    return { allowed: true, retryAfterSeconds: 0 };
+  }
+
+  if (current.count >= maxRequests) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((current.windowStart + windowMs - now) / 1000));
+    return { allowed: false, retryAfterSeconds };
+  }
+
+  current.count += 1;
+  endpointBuckets.set(key, current);
+  return { allowed: true, retryAfterSeconds: 0 };
 }
 
 /**
@@ -39,12 +156,13 @@ export function verifyPinSafe(inputPin: string, configuredPin: string): boolean 
 }
 
 /**
- * Creates a signed HMAC-SHA256 session token for authenticated admins.
+ * Creates a signed HMAC-SHA256 session token for authenticated admins with a unique nonce (jti).
  */
 export function createAdminSessionToken(): string {
   const now = Date.now();
   const payload = JSON.stringify({
     role: 'admin',
+    jti: crypto.randomBytes(12).toString('hex'),
     iat: now,
     exp: now + SESSION_TTL_MS,
   });
@@ -153,4 +271,3 @@ export function sanitizePublicStoreConfig(config: StoreConfig): StoreConfig {
     adminPin: '',
   };
 }
-

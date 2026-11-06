@@ -1,10 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readDb, writeDb } from '@/lib/server-db';
+import { readDbAsync, writeDbAsync } from '@/lib/server-db';
 import { Producto } from '@/lib/data';
 import { isAdminRequest, unauthorizedResponse } from '@/lib/auth';
 
+const MAX_IMAGE_STRING_LENGTH = 350_000; // ~250KB max compressed Base64 / URL
+
+function validateImagesArray(imagenes: unknown): { valid: boolean; sanitized: string[]; error?: string } {
+  const defaultImg =
+    'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85';
+  if (!Array.isArray(imagenes) || imagenes.length === 0) {
+    return { valid: true, sanitized: [defaultImg] };
+  }
+  const sanitized: string[] = [];
+  for (const raw of imagenes.slice(0, 6)) {
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const trimmed = raw.trim();
+    if (trimmed.length > MAX_IMAGE_STRING_LENGTH) {
+      return {
+        valid: false,
+        sanitized: [],
+        error:
+          'La imagen excede el tamaño máximo permitido (250 KB comprimida). Usa el cargador automático o una URL externa.',
+      };
+    }
+    sanitized.push(trimmed);
+  }
+  return { valid: true, sanitized: sanitized.length > 0 ? sanitized : [defaultImg] };
+}
+
 export async function GET() {
-  const db = readDb();
+  const db = await readDbAsync();
   return NextResponse.json({ products: db.products });
 }
 
@@ -15,21 +40,21 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const db = readDb();
+    const imgCheck = validateImagesArray(body.imagenes);
+    if (!imgCheck.valid) {
+      return NextResponse.json({ success: false, message: imgCheck.error }, { status: 413 });
+    }
+
+    const db = await readDbAsync();
 
     const newProduct: Producto = {
       id: body.id || `prod-${Date.now()}`,
-      referencia: body.referencia || `REF-${Math.floor(100 + Math.random() * 900)}`,
-      nombre: (body.nombre || 'Nuevo Producto').trim(),
+      referencia: (body.referencia || `REF-${Math.floor(100 + Math.random() * 900)}`).trim().slice(0, 64),
+      nombre: (body.nombre || 'Nuevo Producto').trim().slice(0, 160),
       categoria: body.categoria || 'Camisetas',
-      marca_motivo: (body.marca_motivo || 'Colección Oficial').trim(),
-      descripcion: (body.descripcion || '').trim(),
-      imagenes:
-        Array.isArray(body.imagenes) && body.imagenes.length > 0
-          ? body.imagenes
-          : [
-              'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85',
-            ],
+      marca_motivo: (body.marca_motivo || 'Colección Oficial').trim().slice(0, 100),
+      descripcion: (body.descripcion || '').trim().slice(0, 1000),
+      imagenes: imgCheck.sanitized,
       precio_base: Math.max(0, Number(body.precio_base) || 0),
       configuracion_alertas: {
         stock_minimo_alerta: Math.max(
@@ -53,7 +78,7 @@ export async function POST(req: NextRequest) {
     };
 
     db.products = [newProduct, ...db.products];
-    const saved = writeDb(db);
+    const saved = await writeDbAsync(db);
     return NextResponse.json({ success: true, product: newProduct, products: saved.products });
   } catch (err) {
     console.error('POST /api/products error:', err);
@@ -71,9 +96,8 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const db = readDb();
+    const db = await readDbAsync();
 
-    // Quick stock update for a single variant
     if (body.action === 'updateStock') {
       const { productoId, varianteId, newStock } = body;
       db.products = db.products.map((prod) => {
@@ -87,11 +111,10 @@ export async function PUT(req: NextRequest) {
           ),
         };
       });
-      const saved = writeDb(db);
+      const saved = await writeDbAsync(db);
       return NextResponse.json({ success: true, products: saved.products });
     }
 
-    // Quick threshold update
     if (body.action === 'updateThreshold') {
       const { productoId, newThreshold } = body;
       db.products = db.products.map((prod) => {
@@ -103,15 +126,21 @@ export async function PUT(req: NextRequest) {
           },
         };
       });
-      const saved = writeDb(db);
+      const saved = await writeDbAsync(db);
       return NextResponse.json({ success: true, products: saved.products });
     }
 
-    // Full product update (with photos, details, and variants)
     if (body.product && body.product.id) {
-      const updatedProd: Producto = body.product;
+      const imgCheck = validateImagesArray(body.product.imagenes);
+      if (!imgCheck.valid) {
+        return NextResponse.json({ success: false, message: imgCheck.error }, { status: 413 });
+      }
+      const updatedProd: Producto = {
+        ...body.product,
+        imagenes: imgCheck.sanitized,
+      };
       db.products = db.products.map((p) => (p.id === updatedProd.id ? updatedProd : p));
-      const saved = writeDb(db);
+      const saved = await writeDbAsync(db);
       return NextResponse.json({
         success: true,
         product: updatedProd,
@@ -147,9 +176,9 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const db = readDb();
+    const db = await readDbAsync();
     db.products = db.products.filter((p) => p.id !== id);
-    const saved = writeDb(db);
+    const saved = await writeDbAsync(db);
     return NextResponse.json({ success: true, products: saved.products });
   } catch (err) {
     console.error('DELETE /api/products error:', err);

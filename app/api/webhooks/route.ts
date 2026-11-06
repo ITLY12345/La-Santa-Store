@@ -1,8 +1,8 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  readDb,
-  writeDb,
+  readDbAsync,
+  writeDbAsync,
   getFormattedNow,
   createOrderStatusNotification,
 } from '@/lib/server-db';
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const provider = searchParams.get('provider') || 'generic';
     const payload = JSON.parse(rawBody || '{}');
-    const db = readDb();
+    const db = await readDbAsync();
 
     if (payload.orderId || payload.orderNumber) {
       const idx = db.orders.findIndex(
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
 
         const notif = createOrderStatusNotification(updatedOrder, payload.estado);
         db.notifications = [notif, ...db.notifications];
-        writeDb(db);
+        await writeDbAsync(db);
 
         return NextResponse.json({
           success: true,

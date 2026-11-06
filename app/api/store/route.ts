@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readDb, writeDb, getInitialDb } from '@/lib/server-db';
+import { readDbAsync, writeDbAsync, getInitialDb } from '@/lib/server-db';
 import {
   isAdminRequest,
   unauthorizedResponse,
@@ -7,7 +7,7 @@ import {
 } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
-  const db = readDb();
+  const db = await readDbAsync();
   const isAdmin = isAdminRequest(req);
 
   if (isAdmin) {
@@ -22,7 +22,6 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Public visitors only receive catalog products and public store metadata (Habeas Data compliance)
   return NextResponse.json({
     isAdmin: false,
     products: db.products,
@@ -34,7 +33,7 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
-    const db = readDb();
+    const db = await readDbAsync();
     const isAdmin = isAdminRequest(req);
 
     if (body.action === 'markNotificationsRead') {
@@ -42,17 +41,16 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ success: true });
       }
       db.notifications = db.notifications.map((n) => ({ ...n, leida: true }));
-      const saved = writeDb(db);
+      const saved = await writeDbAsync(db);
       return NextResponse.json({ success: true, notifications: saved.notifications });
     }
 
-    // All administrative mutations below strictly require an active admin session
     if (!isAdmin) {
       return unauthorizedResponse();
     }
 
     if (body.action === 'reset') {
-      const fresh = writeDb(getInitialDb());
+      const fresh = await writeDbAsync(getInitialDb());
       return NextResponse.json({
         success: true,
         db: {
@@ -73,7 +71,7 @@ export async function PUT(req: NextRequest) {
         ...body.storeConfig,
         adminPin: incomingPin.length >= 4 ? incomingPin : db.storeConfig.adminPin,
       };
-      const saved = writeDb(db);
+      const saved = await writeDbAsync(db);
       return NextResponse.json({
         success: true,
         storeConfig: sanitizePublicStoreConfig(saved.storeConfig),

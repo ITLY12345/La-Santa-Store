@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  readDb,
-  writeDb,
+  readDbAsync,
+  writeDbAsync,
   getFormattedNow,
   isStockCommittedState,
   reconcileStockItems,
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     const estado = searchParams.get('estado');
     const search = searchParams.get('search')?.toLowerCase().trim();
 
-    const db = readDb();
+    const db = await readDbAsync();
     let invoices = db.orders;
 
     if (estado && estado !== 'Todos') {
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const db = readDb();
+    const db = await readDbAsync();
     const formattedDate = getFormattedNow();
 
     const items = body.items || [];
@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
       db.notifications = [notif, ...db.notifications];
     }
 
-    const saved = writeDb(db);
+    const saved = await writeDbAsync(db);
     return NextResponse.json({
       success: true,
       invoice: newInvoice,
@@ -193,7 +193,7 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const db = readDb();
+    const db = await readDbAsync();
     const invoiceId = body.id || body.orderId;
 
     const targetIdx = db.orders.findIndex((o) => o.id === invoiceId);
@@ -326,7 +326,7 @@ export async function PUT(req: NextRequest) {
       db.notifications = [notif, ...db.notifications];
     }
 
-    const saved = writeDb(db);
+    const saved = await writeDbAsync(db);
     return NextResponse.json({
       success: true,
       invoice: updatedInvoice,
@@ -361,7 +361,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const db = readDb();
+    const db = await readDbAsync();
     const target = db.orders.find((o) => o.id === id);
     if (!target) {
       return NextResponse.json(
@@ -378,7 +378,7 @@ export async function DELETE(req: NextRequest) {
     db.orders = db.orders.filter((o) => o.id !== id);
     db.notifications = db.notifications.filter((n) => n.orderId !== id);
 
-    const saved = writeDb(db);
+    const saved = await writeDbAsync(db);
     return NextResponse.json({
       success: true,
       message: `Factura ${target.invoiceNumber || target.orderNumber} eliminada y stock restituido.`,

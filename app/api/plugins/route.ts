@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readDb, writeDb, getFormattedNow } from '@/lib/server-db';
+import { readDbAsync, writeDbAsync, getFormattedNow } from '@/lib/server-db';
 import { isAdminRequest, unauthorizedResponse } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
   if (!isAdminRequest(req)) {
     return unauthorizedResponse();
   }
-  const db = readDb();
+  const db = await readDbAsync();
   return NextResponse.json({ plugins: db.plugins });
 }
 
@@ -17,7 +17,7 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const db = readDb();
+    const db = await readDbAsync();
     const { pluginId, activo, modo, publicKey } = body;
 
     db.plugins = db.plugins.map((plg) => {
@@ -31,7 +31,7 @@ export async function PUT(req: NextRequest) {
       };
     });
 
-    const saved = writeDb(db);
+    const saved = await writeDbAsync(db);
     return NextResponse.json({ success: true, plugins: saved.plugins });
   } catch (err) {
     console.error('PUT /api/plugins error:', err);

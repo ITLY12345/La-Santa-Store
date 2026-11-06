@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readDb, writeDb } from '@/lib/server-db';
+import { readDbAsync, writeDbAsync } from '@/lib/server-db';
 import { isAdminRequest, unauthorizedResponse } from '@/lib/auth';
 
-/**
- * GET /api/inventory
- * Retrieves inventory matrix, stock levels by variant, low-stock alerts and valuations
- */
 export async function GET(req: NextRequest) {
   if (!isAdminRequest(req)) {
     return unauthorizedResponse();
@@ -17,7 +13,7 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get('search')?.toLowerCase().trim();
     const soloAlertas = searchParams.get('alertas') === 'true';
 
-    const db = readDb();
+    const db = await readDbAsync();
     let inventory = db.products;
 
     if (categoria && categoria !== 'Todas') {
@@ -75,10 +71,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/**
- * PUT /api/inventory
- * Quick updates for stock quantities and thresholds across variants
- */
 export async function PUT(req: NextRequest) {
   if (!isAdminRequest(req)) {
     return unauthorizedResponse();
@@ -87,7 +79,7 @@ export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
     const { action, productoId, varianteId, newStock, newThreshold } = body;
-    const db = readDb();
+    const db = await readDbAsync();
 
     if (action === 'updateVariantStock') {
       db.products = db.products.map((p) => {
@@ -101,7 +93,7 @@ export async function PUT(req: NextRequest) {
           ),
         };
       });
-      const saved = writeDb(db);
+      const saved = await writeDbAsync(db);
       return NextResponse.json({ success: true, products: saved.products });
     }
 
@@ -115,7 +107,7 @@ export async function PUT(req: NextRequest) {
           },
         };
       });
-      const saved = writeDb(db);
+      const saved = await writeDbAsync(db);
       return NextResponse.json({ success: true, products: saved.products });
     }
 

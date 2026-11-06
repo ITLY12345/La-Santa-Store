@@ -461,15 +461,52 @@ export function AdminDashboard() {
     setShowProductModal(true);
   };
 
-  // Handle Local Image Upload (FileReader -> Data URL)
+  // Handle Local Image Upload with Automatic Client-Side WebP Compression (Max 900x900px, ~45KB)
   const handlePhotoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setProdModalError('Formato inválido. Selecciona una imagen JPG, PNG o WebP.');
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) {
+      setProdModalError('La fotografía supera el límite de 8 MB. Elige un archivo más liviano.');
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setProdImagenUrl(reader.result);
-      }
+      if (typeof reader.result !== 'string') return;
+      const img = new window.Image();
+      img.onload = () => {
+        const MAX_DIM = 900;
+        let width = img.width;
+        let height = img.height;
+        if (width > MAX_DIM || height > MAX_DIM) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          } else {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/webp', 0.8);
+          setProdImagenUrl(compressedDataUrl);
+          setProdModalError(null);
+        } else {
+          setProdImagenUrl(reader.result as string);
+        }
+      };
+      img.src = reader.result;
     };
     reader.readAsDataURL(file);
   };

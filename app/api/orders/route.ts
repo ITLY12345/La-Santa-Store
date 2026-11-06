@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  readDb,
-  writeDb,
+  readDbAsync,
+  writeDbAsync,
   getFormattedNow,
   isStockCommittedState,
   reconcileStockItems,
@@ -12,13 +12,15 @@ import {
   isAdminRequest,
   unauthorizedResponse,
   sanitizePublicStoreConfig,
+  getClientIp,
+  checkEndpointRateLimit,
 } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
   if (!isAdminRequest(req)) {
     return unauthorizedResponse();
   }
-  const db = readDb();
+  const db = await readDbAsync();
   return NextResponse.json({
     orders: db.orders,
     notifications: db.notifications,
@@ -28,7 +30,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const db = readDb();
+    const db = await readDbAsync();
     const formattedDate = getFormattedNow();
     const isAdmin = isAdminRequest(req);
 
@@ -38,10 +40,10 @@ export async function POST(req: NextRequest) {
         return unauthorizedResponse();
       }
 
-      const items = body.items || [];
-      if (items.length === 0) {
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (items.length === 0 || items.length > 50) {
         return NextResponse.json(
-          { success: false, message: 'Agrega al menos un producto a la factura POS.' },
+          { success: false, message: 'Agrega entre 1 y 50 productos a la factura POS.' },
           { status: 400 }
         );
       }
@@ -80,14 +82,16 @@ export async function POST(req: NextRequest) {
             : undefined,
         fechaEntrega: estadoInicial === 'Entregado' ? formattedDate : undefined,
         origen: 'POS Interno',
-        clienteNombre: (body.clienteNombre || 'Cliente Mostrador Cartagena').trim(),
-        clienteDocumento: (body.clienteDocumento || '222222222222').trim(),
-        clienteTelefono: (body.clienteTelefono || '').trim(),
+        clienteNombre: (body.clienteNombre || 'Cliente Mostrador Cartagena').trim().slice(0, 120),
+        clienteDocumento: (body.clienteDocumento || '222222222222').trim().slice(0, 40),
+        clienteTelefono: (body.clienteTelefono || '').trim().slice(0, 40),
         clienteDireccion: (
           body.clienteDireccion || 'Punto de Venta Cartagena de Indias'
-        ).trim(),
-        transportadora: body.transportadora || '',
-        guiaSeguimiento: body.guiaSeguimiento || '',
+        )
+          .trim()
+          .slice(0, 200),
+        transportadora: (body.transportadora || '').trim().slice(0, 80),
+        guiaSeguimiento: (body.guiaSeguimiento || '').trim().slice(0, 80),
         items,
         subtotal,
         costoEnvio: envio,
@@ -97,8 +101,8 @@ export async function POST(req: NextRequest) {
         estado: estadoInicial,
         metodoPagoInterno: body.metodoPagoInterno || 'Efectivo',
         stockDeducted: shouldDeduct,
-        notas: body.notas || '',
-        referenceUrl: `https://store.app/factura/${invoiceNum}`,
+        notas: typeof body.notas === 'string' ? body.notas.slice(0, 500) : '',
+        referenceUrl: `https://lasantastore.enigmaproducciones.com/factura/${invoiceNum}`,
       };
 
       db.products = stockResult.products;
@@ -110,7 +114,7 @@ export async function POST(req: NextRequest) {
         db.notifications = [notif, ...db.notifications];
       }
 
-      const saved = writeDb(db);
+      const saved = await writeDbAsync(db);
       return NextResponse.json({
         success: true,
         order: newOrder,
@@ -121,33 +125,69 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Case 2: Customer WhatsApp Order Creation (Starts as Pendiente)
-    const rawItems: CartItem[] = Array.isArray(body.items) ? body.items : [];
-    if (rawItems.length === 0) {
+    // Case 2: Customer WhatsApp Order Creation (Public endpoint -> Rate-limited & strictly validated)
+    const ip = getClientIp(req);
+    const rateLimit = checkEndpointRateLimit('whatsapp_order_create', ip, 10, 10 * 60 * 1000);
+    if (!rateLimit.allowed) {
       return NextResponse.json(
-        { success: false, message: 'El pedido debe incluir al menos un producto.' },
+        {
+          success: false,
+          message: 'Has enviado demasiados pedidos recientemente. Espera unos minutos antes de intentar de nuevo.',
+        },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+        }
+      );
+    }
+
+    const rawItems: CartItem[] = Array.isArray(body.items) ? body.items : [];
+    if (rawItems.length === 0 || rawItems.length > 30) {
+      return NextResponse.json(
+        { success: false, message: 'El pedido debe incluir entre 1 y 30 productos válidos.' },
         { status: 400 }
       );
     }
 
-    // Verify prices against server catalog to prevent client-side price tampering
-    const verifiedItems: CartItem[] = rawItems.map((it) => {
+    // Strict verification: Every item MUST match an existing product and variant in the server catalog
+    const verifiedItems: CartItem[] = [];
+    for (const it of rawItems) {
       const serverProd = db.products.find((p) => p.id === it.productoId);
-      const unitPrice = serverProd ? serverProd.precio_base : Math.max(0, Number(it.precio) || 0);
+      const serverVariant = serverProd?.variantes.find((v) => v.id_variante === it.varianteId);
+
+      if (!serverProd || !serverVariant) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'Uno de los productos o tallas seleccionadas no existe en el catálogo oficial.',
+          },
+          { status: 400 }
+        );
+      }
+
       const qty = Math.max(1, Math.min(99, Math.floor(Number(it.cantidad) || 1)));
-      return {
-        ...it,
-        precio: unitPrice,
+      verifiedItems.push({
+        cartItemId: `${serverProd.id}_${serverVariant.id_variante}`,
+        productoId: serverProd.id,
+        varianteId: serverVariant.id_variante,
+        nombre: serverProd.nombre,
+        categoria: serverProd.categoria,
+        marca_motivo: serverProd.marca_motivo,
+        talla: serverVariant.talla,
+        color: serverVariant.color,
+        diseno_motivo: serverVariant.diseno_motivo,
+        precio: serverProd.precio_base,
         cantidad: qty,
-      };
-    });
+        stockMaximo: serverVariant.stock_disponible,
+        imagen: serverProd.imagenes[0] || '',
+      });
+    }
 
     const subtotal = verifiedItems.reduce(
       (acc, it) => acc + it.precio * it.cantidad,
       0
     );
 
-    // Unify orderNumber between client WhatsApp link and backend database
     const requestedOrderNum =
       typeof body.orderNumber === 'string' && /^#ORD-\d{4,8}$/.test(body.orderNumber.trim())
         ? body.orderNumber.trim()
@@ -190,11 +230,12 @@ export async function POST(req: NextRequest) {
       stockDeducted: false,
       notas: typeof body.notas === 'string' ? body.notas.slice(0, 500) : '',
       referenceUrl:
-        body.referenceUrl || `https://lasanta.store/pedido/${orderNum.replace('#', '')}`,
+        body.referenceUrl ||
+        `https://lasantastore.enigmaproducciones.com/pedido/${orderNum.replace('#', '')}`,
     };
 
     db.orders = [newOrder, ...db.orders];
-    const saved = writeDb(db);
+    const saved = await writeDbAsync(db);
 
     return NextResponse.json({
       success: true,
@@ -217,7 +258,7 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const db = readDb();
+    const db = await readDbAsync();
     const { orderId } = body;
 
     const targetIndex = db.orders.findIndex((o) => o.id === orderId);
@@ -243,7 +284,6 @@ export async function PUT(req: NextRequest) {
 
     const shouldDeductNext = isStockCommittedState(nextEstado);
 
-    // Reconcile stock between previous state/items and new state/items
     const stockRes = reconcileStockItems(
       db.products,
       existingOrder.items,
@@ -265,7 +305,6 @@ export async function PUT(req: NextRequest) {
     let fechaEntrega = existingOrder.fechaEntrega;
     const nextSeq = db.storeConfig.nextInvoiceSequence || 1003;
 
-    // Assign official invoice number if entering a committed state without one
     if (shouldDeductNext && !assignedInvoice) {
       assignedInvoice = `FAC-${nextSeq}`;
       fechaFacturacion = formattedDate;
@@ -344,7 +383,6 @@ export async function PUT(req: NextRequest) {
     db.products = stockRes.products;
     db.orders[targetIndex] = updatedOrder;
 
-    // Trigger Push Notification if status changed to 'Despachado' or 'Entregado'
     let createdNotification = null;
     if (
       (nextEstado === 'Despachado' || nextEstado === 'Entregado') &&
@@ -354,7 +392,7 @@ export async function PUT(req: NextRequest) {
       db.notifications = [createdNotification, ...db.notifications];
     }
 
-    const saved = writeDb(db);
+    const saved = await writeDbAsync(db);
     return NextResponse.json({
       success: true,
       order: updatedOrder,
@@ -388,7 +426,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const db = readDb();
+    const db = await readDbAsync();
     const target = db.orders.find((o) => o.id === id);
     if (!target) {
       return NextResponse.json(
@@ -397,7 +435,6 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // If stock was deducted, restore it to inventory before deleting the invoice
     if (target.stockDeducted) {
       const stockRes = reconcileStockItems(
         db.products,
@@ -412,7 +449,7 @@ export async function DELETE(req: NextRequest) {
     db.orders = db.orders.filter((o) => o.id !== id);
     db.notifications = db.notifications.filter((n) => n.orderId !== id);
 
-    const saved = writeDb(db);
+    const saved = await writeDbAsync(db);
     return NextResponse.json({
       success: true,
       products: saved.products,
