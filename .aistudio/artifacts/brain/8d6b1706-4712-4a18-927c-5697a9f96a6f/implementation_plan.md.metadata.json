@@ -1,0 +1,6 @@
+{
+  "summary": "Plan de arquitectura e implementación para la evolución empresarial de la tienda: notificaciones Push nativas más panel de seguimiento en tienda cuando un pedido pasa a Despachado o Entregado, terminal de facturación POS profesional con creación, edición y eliminación de facturas, sistema de inventario POS visual con fotos y gestión completa de productos/variantes, sede operativa en Cartagena de Indias (Colombia), leyenda corporativa empresarial y backend API REST en Next.js con persistencia en servidor y arquitectura modular de plugins y pasarelas de pago.",
+  "updatedAt": "2026-11-06T13:33:42.978086773Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

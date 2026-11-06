@@ -1,0 +1,1237 @@
+'use client';
+
+import React, { createContext, useContext, useState, useMemo, useRef, useCallback } from 'react';
+import {
+  Producto,
+  Variante,
+  CartItem,
+  Order,
+  MetodoPagoInterno,
+  EstadoPedido,
+  StoreConfig,
+  PluginConnector,
+  StoreNotification,
+  INITIAL_PRODUCTS,
+  INITIAL_ORDERS,
+  DEFAULT_STORE_CONFIG,
+  INITIAL_PLUGINS,
+  INITIAL_NOTIFICATIONS,
+  formatCOP,
+} from './data';
+
+const STORAGE_KEY_PRODUCTS = 'lasanta_store_products_v5';
+const STORAGE_KEY_CART = 'lasanta_store_cart_v5';
+const STORAGE_KEY_ORDERS = 'lasanta_store_orders_v5';
+const STORAGE_KEY_CONFIG = 'lasanta_store_config_v5';
+const STORAGE_KEY_FAVORITES = 'lasanta_store_favorites_v5';
+const STORAGE_KEY_NOTIFICATIONS = 'lasanta_store_notifications_v5';
+const STORAGE_KEY_PLUGINS = 'lasanta_store_plugins_v5';
+const SESSION_KEY_ADMIN_AUTH = 'lasanta_admin_auth_v5';
+
+export interface CriticalAlertItem {
+  producto: Producto;
+  variante: Variante;
+  deficit: number;
+}
+
+interface StoreContextType {
+  products: Producto[];
+  cart: CartItem[];
+  orders: Order[];
+  favorites: string[];
+  storeConfig: StoreConfig;
+  plugins: PluginConnector[];
+  notifications: StoreNotification[];
+  unreadNotificationsCount: number;
+  activePushToast: StoreNotification | null;
+  dismissPushToast: () => void;
+  markAllNotificationsRead: () => void;
+  browserPushPermission: NotificationPermission | 'unsupported';
+  requestBrowserPushPermission: () => Promise<boolean>;
+  triggerManualPushTest: (order: Order, estado: 'Despachado' | 'Entregado') => void;
+  cartTotalCount: number;
+  cartSubtotal: number;
+  criticalAlerts: CriticalAlertItem[];
+  isAdminAuthenticated: boolean;
+  authenticateAdmin: (pin: string) => boolean;
+  logoutAdmin: () => void;
+  // Favorites
+  toggleFavorite: (productoId: string) => void;
+  // Product & Inventory POS CRUD actions
+  createProduct: (productData: Omit<Producto, 'id'>) => Promise<{
+    success: boolean;
+    product?: Producto;
+    message?: string;
+  }>;
+  updateProduct: (updatedProduct: Producto) => Promise<{
+    success: boolean;
+    message?: string;
+  }>;
+  deleteProduct: (productoId: string) => Promise<{
+    success: boolean;
+    message?: string;
+  }>;
+  updateVariantStock: (productoId: string, varianteId: string, newStock: number) => void;
+  updateProductAlertThreshold: (productoId: string, newThreshold: number) => void;
+  resetToInitialCatalog: () => void;
+  // Cart actions
+  addToCart: (item: Omit<CartItem, 'cartItemId'>) => { success: boolean; message?: string };
+  updateCartQuantity: (cartItemId: string, newQty: number) => void;
+  removeFromCart: (cartItemId: string) => void;
+  clearCart: () => void;
+  // Order & Internal POS Billing CRUD actions
+  createOrder: (payload: {
+    clienteNombre: string;
+    clienteDireccion: string;
+    clienteTelefono?: string;
+    referenceUrl?: string;
+    notas?: string;
+  }) => Order;
+  createPosInvoice: (payload: {
+    clienteNombre: string;
+    clienteDocumento?: string;
+    clienteTelefono?: string;
+    clienteDireccion?: string;
+    transportadora?: string;
+    guiaSeguimiento?: string;
+    items: CartItem[];
+    costoEnvio: number;
+    descuentoManual?: number;
+    metodoPagoInterno: MetodoPagoInterno;
+    estado?: EstadoPedido;
+    notas?: string;
+  }) => { success: boolean; order?: Order; message?: string };
+  emitirFacturaOrder: (
+    orderId: string,
+    billingPayload: {
+      clienteNombre: string;
+      clienteDocumento?: string;
+      clienteTelefono?: string;
+      clienteDireccion: string;
+      transportadora?: string;
+      guiaSeguimiento?: string;
+      costoEnvio: number;
+      descuentoManual?: number;
+      metodoPagoInterno: MetodoPagoInterno;
+      notas?: string;
+    }
+  ) => { success: boolean; order?: Order; message?: string };
+  updateOrderFull: (
+    orderId: string,
+    payload: {
+      clienteNombre: string;
+      clienteDocumento?: string;
+      clienteTelefono?: string;
+      clienteDireccion: string;
+      transportadora?: string;
+      guiaSeguimiento?: string;
+      items: CartItem[];
+      costoEnvio: number;
+      descuentoManual?: number;
+      metodoPagoInterno: MetodoPagoInterno;
+      estado: EstadoPedido;
+      notas?: string;
+    }
+  ) => { success: boolean; order?: Order; message?: string };
+  deleteOrder: (orderId: string) => { success: boolean; message?: string };
+  updateOrderStatus: (
+    orderId: string,
+    nuevoEstado: EstadoPedido,
+    trackingInfo?: { transportadora?: string; guiaSeguimiento?: string }
+  ) => void;
+  // Plugins & Backend Connectors
+  updatePluginConnector: (
+    pluginId: string,
+    updates: Partial<PluginConnector>
+  ) => Promise<void>;
+  // Config actions
+  updateStoreConfig: (config: Partial<StoreConfig>) => void;
+}
+
+const StoreContext = createContext<StoreContextType | null>(null);
+
+function getFormattedNow(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+    now.getDate()
+  ).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(
+    now.getMinutes()
+  ).padStart(2, '0')}`;
+}
+
+function isStockCommitted(estado: EstadoPedido): boolean {
+  return estado === 'Facturado' || estado === 'Despachado' || estado === 'Entregado';
+}
+
+export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const [products, setProducts] = useState<Producto[]>(INITIAL_PRODUCTS);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
+  const [favorites, setFavorites] = useState<string[]>(['prod-001', 'prod-002']);
+  const [storeConfig, setStoreConfig] = useState<StoreConfig>(DEFAULT_STORE_CONFIG);
+  const [plugins, setPlugins] = useState<PluginConnector[]>(INITIAL_PLUGINS);
+  const [notifications, setNotifications] = useState<StoreNotification[]>(INITIAL_NOTIFICATIONS);
+  const [activePushToast, setActivePushToast] = useState<StoreNotification | null>(null);
+  const [browserPushPermission, setBrowserPushPermission] = useState<
+    NotificationPermission | 'unsupported'
+  >('default');
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+
+  const knownNotificationIdsRef = useRef<Set<string>>(
+    new Set(INITIAL_NOTIFICATIONS.map((n) => n.id))
+  );
+
+  // Fire native browser push notification + in-app toast banner
+  const dispatchNativeAndInAppPush = useCallback((notif: StoreNotification) => {
+    setActivePushToast(notif);
+
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (window.Notification.permission === 'granted') {
+        try {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready
+              .then((reg) => {
+                reg.showNotification(notif.titulo, {
+                  body: notif.mensaje,
+                  icon: '/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png',
+                  badge: '/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png',
+                  tag: notif.id,
+                });
+              })
+              .catch(() => {
+                new window.Notification(notif.titulo, {
+                  body: notif.mensaje,
+                  icon: '/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png',
+                });
+              });
+          } else {
+            new window.Notification(notif.titulo, {
+              body: notif.mensaje,
+              icon: '/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png',
+            });
+          }
+        } catch (err) {
+          console.error('Browser notification error:', err);
+        }
+      }
+    }
+  }, []);
+
+  // Sync with Next.js Backend API (/api/store) and localStorage on mount + periodic poll for live Push Notifications
+  React.useEffect(() => {
+    const rafId =
+      typeof window !== 'undefined'
+        ? window.requestAnimationFrame(() => {
+            if ('Notification' in window) {
+              setBrowserPushPermission(window.Notification.permission);
+            } else {
+              setBrowserPushPermission('unsupported');
+            }
+
+            try {
+              const storedCart = localStorage.getItem(STORAGE_KEY_CART);
+              if (storedCart) setCart(JSON.parse(storedCart));
+              const storedFavs = localStorage.getItem(STORAGE_KEY_FAVORITES);
+              if (storedFavs) setFavorites(JSON.parse(storedFavs));
+              const storedAuth = sessionStorage.getItem(SESSION_KEY_ADMIN_AUTH);
+              if (storedAuth === 'true') setIsAdminAuthenticated(true);
+            } catch (e) {
+              console.error(e);
+            }
+          })
+        : 0;
+
+    let isMounted = true;
+
+    const fetchBackendState = async (isInitial: boolean) => {
+      try {
+        const res = await fetch('/api/store', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!isMounted) return;
+
+        if (Array.isArray(data.products)) {
+          setProducts(data.products);
+          localStorage.setItem(STORAGE_KEY_PRODUCTS, JSON.stringify(data.products));
+        }
+        if (Array.isArray(data.orders)) {
+          setOrders(data.orders);
+          localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(data.orders));
+        }
+        if (data.storeConfig) {
+          setStoreConfig({ ...DEFAULT_STORE_CONFIG, ...data.storeConfig });
+          localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(data.storeConfig));
+        }
+        if (Array.isArray(data.plugins)) {
+          setPlugins(data.plugins);
+          localStorage.setItem(STORAGE_KEY_PLUGINS, JSON.stringify(data.plugins));
+        }
+        if (Array.isArray(data.notifications)) {
+          setNotifications(data.notifications);
+          localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify(data.notifications));
+
+          if (isInitial) {
+            data.notifications.forEach((n: StoreNotification) =>
+              knownNotificationIdsRef.current.add(n.id)
+            );
+          } else {
+            // Check if any new notification arrived from backend (e.g., Admin dispatched an order in another tab)
+            for (const n of data.notifications as StoreNotification[]) {
+              if (!knownNotificationIdsRef.current.has(n.id)) {
+                knownNotificationIdsRef.current.add(n.id);
+                dispatchNativeAndInAppPush(n);
+              }
+            }
+          }
+        }
+      } catch {
+        // Fallback to localStorage if offline
+        if (isInitial && typeof window !== 'undefined') {
+          try {
+            const p = localStorage.getItem(STORAGE_KEY_PRODUCTS);
+            if (p) setProducts(JSON.parse(p));
+            const o = localStorage.getItem(STORAGE_KEY_ORDERS);
+            if (o) setOrders(JSON.parse(o));
+            const c = localStorage.getItem(STORAGE_KEY_CONFIG);
+            if (c) setStoreConfig({ ...DEFAULT_STORE_CONFIG, ...JSON.parse(c) });
+            const n = localStorage.getItem(STORAGE_KEY_NOTIFICATIONS);
+            if (n) setNotifications(JSON.parse(n));
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+    };
+
+    fetchBackendState(true);
+    const interval = setInterval(() => fetchBackendState(false), 5000);
+
+    return () => {
+      isMounted = false;
+      if (rafId && typeof window !== 'undefined') {
+        window.cancelAnimationFrame(rafId);
+      }
+      clearInterval(interval);
+    };
+  }, [dispatchNativeAndInAppPush]);
+
+  const requestBrowserPushPermission = async (): Promise<boolean> => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setBrowserPushPermission('unsupported');
+      return false;
+    }
+    try {
+      const perm = await window.Notification.requestPermission();
+      setBrowserPushPermission(perm);
+      return perm === 'granted';
+    } catch {
+      return false;
+    }
+  };
+
+  const dismissPushToast = () => {
+    setActivePushToast(null);
+  };
+
+  const markAllNotificationsRead = () => {
+    const updated = notifications.map((n) => ({ ...n, leida: true }));
+    setNotifications(updated);
+    try {
+      localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
+    fetch('/api/store', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'markNotificationsRead' }),
+    }).catch(() => {});
+  };
+
+  const saveProductsLocal = (newProducts: Producto[]) => {
+    setProducts(newProducts);
+    try {
+      localStorage.setItem(STORAGE_KEY_PRODUCTS, JSON.stringify(newProducts));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const saveCart = (newCart: CartItem[]) => {
+    setCart(newCart);
+    try {
+      localStorage.setItem(STORAGE_KEY_CART, JSON.stringify(newCart));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const saveOrdersLocal = (newOrders: Order[]) => {
+    setOrders(newOrders);
+    try {
+      localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(newOrders));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const saveFavorites = (newFavs: string[]) => {
+    setFavorites(newFavs);
+    try {
+      localStorage.setItem(STORAGE_KEY_FAVORITES, JSON.stringify(newFavs));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const saveConfigLocal = (newCfg: StoreConfig) => {
+    setStoreConfig(newCfg);
+    try {
+      localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(newCfg));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const saveNotificationsLocal = (newNotifs: StoreNotification[]) => {
+    setNotifications(newNotifs);
+    try {
+      localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify(newNotifs));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const toggleFavorite = (productoId: string) => {
+    if (favorites.includes(productoId)) {
+      saveFavorites(favorites.filter((id) => id !== productoId));
+    } else {
+      saveFavorites([...favorites, productoId]);
+    }
+  };
+
+  const unreadNotificationsCount = useMemo(() => {
+    return notifications.filter((n) => !n.leida).length;
+  }, [notifications]);
+
+  // Cart calculations
+  const cartTotalCount = useMemo(() => {
+    return cart.reduce((acc, item) => acc + item.cantidad, 0);
+  }, [cart]);
+
+  const cartSubtotal = useMemo(() => {
+    return cart.reduce((acc, item) => acc + item.precio * item.cantidad, 0);
+  }, [cart]);
+
+  // Critical stock alerts calculation
+  const criticalAlerts = useMemo(() => {
+    const alerts: CriticalAlertItem[] = [];
+    products.forEach((prod) => {
+      const minThreshold = prod.configuracion_alertas?.stock_minimo_alerta ?? 3;
+      prod.variantes.forEach((variant) => {
+        if (variant.stock_disponible <= minThreshold) {
+          alerts.push({
+            producto: prod,
+            variante: variant,
+            deficit: minThreshold - variant.stock_disponible,
+          });
+        }
+      });
+    });
+    return alerts;
+  }, [products]);
+
+  const authenticateAdmin = (pin: string): boolean => {
+    if (pin.trim() === storeConfig.adminPin.trim()) {
+      setIsAdminAuthenticated(true);
+      try {
+        sessionStorage.setItem(SESSION_KEY_ADMIN_AUTH, 'true');
+      } catch (e) {
+        console.error(e);
+      }
+      return true;
+    }
+    return false;
+  };
+
+  const logoutAdmin = () => {
+    setIsAdminAuthenticated(false);
+    try {
+      sessionStorage.removeItem(SESSION_KEY_ADMIN_AUTH);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Reconcile stock helper on client for instant optimistic updates
+  const reconcileClientStock = (
+    currentProducts: Producto[],
+    oldItems: CartItem[],
+    oldDeducted: boolean,
+    newItems: CartItem[],
+    newDeducted: boolean
+  ): { success: boolean; products: Producto[]; errorMessage?: string } => {
+    const nextProducts: Producto[] = JSON.parse(JSON.stringify(currentProducts));
+
+    if (oldDeducted) {
+      for (const item of oldItems) {
+        const prod = nextProducts.find((p) => p.id === item.productoId);
+        const variant = prod?.variantes.find((v) => v.id_variante === item.varianteId);
+        if (variant) {
+          variant.stock_disponible += item.cantidad;
+        }
+      }
+    }
+
+    if (newDeducted) {
+      for (const item of newItems) {
+        const prod = nextProducts.find((p) => p.id === item.productoId);
+        const variant = prod?.variantes.find((v) => v.id_variante === item.varianteId);
+        if (!variant) {
+          return {
+            success: false,
+            products: currentProducts,
+            errorMessage: `La variante de ${item.nombre} (${item.talla}) no existe.`,
+          };
+        }
+        if (variant.stock_disponible < item.cantidad) {
+          return {
+            success: false,
+            products: currentProducts,
+            errorMessage: `Stock insuficiente para ${item.nombre} (Talla ${item.talla} · ${item.color}). Disponible: ${variant.stock_disponible} un.`,
+          };
+        }
+        variant.stock_disponible = Math.max(0, variant.stock_disponible - item.cantidad);
+      }
+    }
+
+    return { success: true, products: nextProducts };
+  };
+
+  // POS Inventory CRUD: Create Product
+  const createProduct = async (
+    productData: Omit<Producto, 'id'>
+  ): Promise<{ success: boolean; product?: Producto; message?: string }> => {
+    const newProd: Producto = {
+      ...productData,
+      id: `prod-${Date.now()}`,
+    };
+    const nextList = [newProd, ...products];
+    saveProductsLocal(nextList);
+
+    try {
+      const res = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newProd),
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.products)) {
+        saveProductsLocal(data.products);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
+    return { success: true, product: newProd };
+  };
+
+  // POS Inventory CRUD: Update Product
+  const updateProduct = async (
+    updatedProduct: Producto
+  ): Promise<{ success: boolean; message?: string }> => {
+    const nextList = products.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
+    saveProductsLocal(nextList);
+
+    try {
+      const res = await fetch('/api/products', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product: updatedProduct }),
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.products)) {
+        saveProductsLocal(data.products);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
+    return { success: true };
+  };
+
+  // POS Inventory CRUD: Delete Product
+  const deleteProduct = async (
+    productoId: string
+  ): Promise<{ success: boolean; message?: string }> => {
+    const nextList = products.filter((p) => p.id !== productoId);
+    saveProductsLocal(nextList);
+
+    try {
+      await fetch(`/api/products?id=${encodeURIComponent(productoId)}`, {
+        method: 'DELETE',
+      });
+    } catch (e) {
+      console.error(e);
+    }
+
+    return { success: true };
+  };
+
+  const updateVariantStock = (productoId: string, varianteId: string, newStock: number) => {
+    const validated = Math.max(0, newStock);
+    const updated = products.map((prod) => {
+      if (prod.id !== productoId) return prod;
+      return {
+        ...prod,
+        variantes: prod.variantes.map((v) =>
+          v.id_variante === varianteId ? { ...v, stock_disponible: validated } : v
+        ),
+      };
+    });
+    saveProductsLocal(updated);
+
+    fetch('/api/products', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'updateStock',
+        productoId,
+        varianteId,
+        newStock: validated,
+      }),
+    }).catch(() => {});
+  };
+
+  const updateProductAlertThreshold = (productoId: string, newThreshold: number) => {
+    const validated = Math.max(0, newThreshold);
+    const updated = products.map((prod) => {
+      if (prod.id !== productoId) return prod;
+      return {
+        ...prod,
+        configuracion_alertas: {
+          stock_minimo_alerta: validated,
+        },
+      };
+    });
+    saveProductsLocal(updated);
+
+    fetch('/api/products', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'updateThreshold',
+        productoId,
+        newThreshold: validated,
+      }),
+    }).catch(() => {});
+  };
+
+  const resetToInitialCatalog = () => {
+    saveProductsLocal(INITIAL_PRODUCTS);
+    saveOrdersLocal(INITIAL_ORDERS);
+    saveConfigLocal(DEFAULT_STORE_CONFIG);
+    saveNotificationsLocal(INITIAL_NOTIFICATIONS);
+    setPlugins(INITIAL_PLUGINS);
+
+    fetch('/api/store', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reset' }),
+    }).catch(() => {});
+  };
+
+  const addToCart = (
+    newItem: Omit<CartItem, 'cartItemId'>
+  ): { success: boolean; message?: string } => {
+    const prod = products.find((p) => p.id === newItem.productoId);
+    const variant = prod?.variantes.find((v) => v.id_variante === newItem.varianteId);
+
+    if (!variant || variant.stock_disponible <= 0) {
+      return { success: false, message: 'La variante seleccionada está agotada.' };
+    }
+
+    const existingIndex = cart.findIndex(
+      (c) => c.productoId === newItem.productoId && c.varianteId === newItem.varianteId
+    );
+
+    if (existingIndex > -1) {
+      const existing = cart[existingIndex];
+      const proposedQty = existing.cantidad + newItem.cantidad;
+
+      if (proposedQty > variant.stock_disponible) {
+        return {
+          success: false,
+          message: `Stock máximo disponible alcanzado (${variant.stock_disponible} unidades).`,
+        };
+      }
+
+      const updatedCart = [...cart];
+      updatedCart[existingIndex] = {
+        ...existing,
+        cantidad: proposedQty,
+        stockMaximo: variant.stock_disponible,
+      };
+      saveCart(updatedCart);
+      return { success: true };
+    } else {
+      if (newItem.cantidad > variant.stock_disponible) {
+        return {
+          success: false,
+          message: `Solo hay ${variant.stock_disponible} unidades disponibles.`,
+        };
+      }
+
+      const cartItem: CartItem = {
+        ...newItem,
+        cartItemId: `${newItem.productoId}_${newItem.varianteId}_${Date.now()}`,
+        stockMaximo: variant.stock_disponible,
+      };
+      saveCart([...cart, cartItem]);
+      return { success: true };
+    }
+  };
+
+  const updateCartQuantity = (cartItemId: string, newQty: number) => {
+    if (newQty <= 0) {
+      removeFromCart(cartItemId);
+      return;
+    }
+
+    const item = cart.find((c) => c.cartItemId === cartItemId);
+    if (!item) return;
+
+    const prod = products.find((p) => p.id === item.productoId);
+    const variant = prod?.variantes.find((v) => v.id_variante === item.varianteId);
+    const currentMax = variant ? variant.stock_disponible : item.stockMaximo;
+
+    const validatedQty = Math.min(newQty, currentMax);
+
+    const updated = cart.map((c) =>
+      c.cartItemId === cartItemId ? { ...c, cantidad: validatedQty, stockMaximo: currentMax } : c
+    );
+    saveCart(updated);
+  };
+
+  const removeFromCart = (cartItemId: string) => {
+    saveCart(cart.filter((c) => c.cartItemId !== cartItemId));
+  };
+
+  const clearCart = () => {
+    saveCart([]);
+  };
+
+  const buildClientNotification = (
+    order: Order,
+    nuevoEstado: 'Despachado' | 'Entregado'
+  ): StoreNotification => {
+    const refCode = order.invoiceNumber
+      ? `${order.orderNumber} (${order.invoiceNumber})`
+      : order.orderNumber;
+    const guiaInfo = order.guiaSeguimiento
+      ? ` · Guía: ${order.guiaSeguimiento}${order.transportadora ? ` (${order.transportadora})` : ''}`
+      : '';
+
+    const titulo =
+      nuevoEstado === 'Despachado'
+        ? `¡Tu pedido ${order.orderNumber} ha sido Despachado!`
+        : `¡Tu pedido ${order.orderNumber} fue Entregado!`;
+
+    const mensaje =
+      nuevoEstado === 'Despachado'
+        ? `Hola ${order.clienteNombre}, tu pedido ${refCode} ya salió de nuestro centro de operaciones en Cartagena de Indias rumbo a ${order.clienteDireccion}${guiaInfo}.`
+        : `Hola ${order.clienteNombre}, confirmamos que tu pedido ${refCode} ha sido entregado exitosamente en ${order.clienteDireccion}. ¡Gracias por tu compra!`;
+
+    return {
+      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      invoiceNumber: order.invoiceNumber,
+      clienteNombre: order.clienteNombre,
+      estado: nuevoEstado,
+      titulo,
+      mensaje,
+      fecha: getFormattedNow(),
+      leida: false,
+      guiaSeguimiento: order.guiaSeguimiento,
+      transportadora: order.transportadora,
+    };
+  };
+
+  const triggerManualPushTest = (order: Order, estado: 'Despachado' | 'Entregado') => {
+    const notif = buildClientNotification(order, estado);
+    knownNotificationIdsRef.current.add(notif.id);
+    saveNotificationsLocal([notif, ...notifications]);
+    dispatchNativeAndInAppPush(notif);
+  };
+
+  // 1. Create order from WhatsApp checkout
+  const createOrder = (payload: {
+    clienteNombre: string;
+    clienteDireccion: string;
+    clienteTelefono?: string;
+    referenceUrl?: string;
+    notas?: string;
+  }): Order => {
+    const orderNum = `#ORD-${Math.floor(1000 + Math.random() * 9000)}`;
+    const formattedDate = getFormattedNow();
+    const orderItems = [...cart];
+
+    const newOrder: Order = {
+      id: `ord-${Date.now()}`,
+      orderNumber: orderNum,
+      fecha: formattedDate,
+      origen: 'WhatsApp',
+      clienteNombre: payload.clienteNombre || 'Cliente WhatsApp',
+      clienteDocumento: '',
+      clienteDireccion: payload.clienteDireccion || 'Cartagena de Indias · Por confirmar',
+      clienteTelefono: payload.clienteTelefono || '',
+      items: orderItems,
+      subtotal: cartSubtotal,
+      costoEnvio: 0,
+      descuentoManual: 0,
+      envioTexto: storeConfig.deliveryNote,
+      total: cartSubtotal,
+      estado: 'Pendiente',
+      metodoPagoInterno: 'Por definir',
+      stockDeducted: false,
+      notas: payload.notas,
+      referenceUrl:
+        payload.referenceUrl || `https://store.app/pedido/${orderNum.replace('#', '')}`,
+    };
+
+    saveOrdersLocal([newOrder, ...orders]);
+    clearCart();
+
+    fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        origen: 'WhatsApp',
+        clienteNombre: newOrder.clienteNombre,
+        clienteDireccion: newOrder.clienteDireccion,
+        clienteTelefono: newOrder.clienteTelefono,
+        items: orderItems,
+        referenceUrl: newOrder.referenceUrl,
+        notas: newOrder.notas,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.orders)) {
+          saveOrdersLocal(data.orders);
+        }
+      })
+      .catch(() => {});
+
+    return newOrder;
+  };
+
+  // 2. Create a direct POS internal invoice
+  const createPosInvoice = (payload: {
+    clienteNombre: string;
+    clienteDocumento?: string;
+    clienteTelefono?: string;
+    clienteDireccion?: string;
+    transportadora?: string;
+    guiaSeguimiento?: string;
+    items: CartItem[];
+    costoEnvio: number;
+    descuentoManual?: number;
+    metodoPagoInterno: MetodoPagoInterno;
+    estado?: EstadoPedido;
+    notas?: string;
+  }): { success: boolean; order?: Order; message?: string } => {
+    if (!payload.items || payload.items.length === 0) {
+      return { success: false, message: 'Agrega al menos un producto a la factura POS.' };
+    }
+
+    const estadoInicial: EstadoPedido = payload.estado || 'Facturado';
+    const shouldDeduct = isStockCommitted(estadoInicial);
+
+    const stockRes = reconcileClientStock(products, [], false, payload.items, shouldDeduct);
+    if (!stockRes.success) {
+      return { success: false, message: stockRes.errorMessage };
+    }
+
+    const nextSeq = storeConfig.nextInvoiceSequence || 1003;
+    const invoiceNum = `FAC-${nextSeq}`;
+    const orderNum = `#POS-${nextSeq}`;
+    const formattedDate = getFormattedNow();
+    const subtotal = payload.items.reduce((acc, it) => acc + it.precio * it.cantidad, 0);
+    const envio = Math.max(0, Number(payload.costoEnvio) || 0);
+    const descuento = Math.max(0, Number(payload.descuentoManual) || 0);
+    const total = Math.max(0, subtotal + envio - descuento);
+
+    const newInvoiceOrder: Order = {
+      id: `pos-${Date.now()}`,
+      orderNumber: orderNum,
+      invoiceNumber: invoiceNum,
+      fecha: formattedDate,
+      fechaFacturacion: formattedDate,
+      fechaDespacho:
+        estadoInicial === 'Despachado' || estadoInicial === 'Entregado'
+          ? formattedDate
+          : undefined,
+      fechaEntrega: estadoInicial === 'Entregado' ? formattedDate : undefined,
+      origen: 'POS Interno',
+      clienteNombre: payload.clienteNombre.trim() || 'Cliente Mostrador Cartagena',
+      clienteDocumento: payload.clienteDocumento?.trim() || '222222222222',
+      clienteTelefono: payload.clienteTelefono?.trim() || '',
+      clienteDireccion:
+        payload.clienteDireccion?.trim() || 'Punto de Venta Cartagena de Indias',
+      transportadora: payload.transportadora?.trim() || '',
+      guiaSeguimiento: payload.guiaSeguimiento?.trim() || '',
+      items: payload.items,
+      subtotal,
+      costoEnvio: envio,
+      descuentoManual: descuento,
+      envioTexto: envio > 0 ? formatCOP(envio) : 'Sin costo / Local Cartagena',
+      total,
+      estado: estadoInicial,
+      metodoPagoInterno: payload.metodoPagoInterno,
+      stockDeducted: shouldDeduct,
+      notas: payload.notas,
+      referenceUrl: `https://store.app/factura/${invoiceNum}`,
+    };
+
+    saveProductsLocal(stockRes.products);
+    saveOrdersLocal([newInvoiceOrder, ...orders]);
+    saveConfigLocal({ ...storeConfig, nextInvoiceSequence: nextSeq + 1 });
+
+    if (estadoInicial === 'Despachado' || estadoInicial === 'Entregado') {
+      const notif = buildClientNotification(newInvoiceOrder, estadoInicial);
+      knownNotificationIdsRef.current.add(notif.id);
+      saveNotificationsLocal([notif, ...notifications]);
+      dispatchNativeAndInAppPush(notif);
+    }
+
+    fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        origen: 'POS Interno',
+        ...payload,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.orders)) {
+          saveOrdersLocal(data.orders);
+          if (Array.isArray(data.products)) saveProductsLocal(data.products);
+          if (data.storeConfig) saveConfigLocal(data.storeConfig);
+        }
+      })
+      .catch(() => {});
+
+    return { success: true, order: newInvoiceOrder };
+  };
+
+  // 3. Emit official invoice from an existing pending order
+  const emitirFacturaOrder = (
+    orderId: string,
+    billingPayload: {
+      clienteNombre: string;
+      clienteDocumento?: string;
+      clienteTelefono?: string;
+      clienteDireccion: string;
+      transportadora?: string;
+      guiaSeguimiento?: string;
+      costoEnvio: number;
+      descuentoManual?: number;
+      metodoPagoInterno: MetodoPagoInterno;
+      notas?: string;
+    }
+  ): { success: boolean; order?: Order; message?: string } => {
+    const targetOrder = orders.find((o) => o.id === orderId);
+    if (!targetOrder) {
+      return { success: false, message: 'Pedido no encontrado.' };
+    }
+
+    return updateOrderFull(orderId, {
+      clienteNombre: billingPayload.clienteNombre,
+      clienteDocumento: billingPayload.clienteDocumento,
+      clienteTelefono: billingPayload.clienteTelefono,
+      clienteDireccion: billingPayload.clienteDireccion,
+      transportadora: billingPayload.transportadora,
+      guiaSeguimiento: billingPayload.guiaSeguimiento,
+      items: targetOrder.items,
+      costoEnvio: billingPayload.costoEnvio,
+      descuentoManual: billingPayload.descuentoManual,
+      metodoPagoInterno: billingPayload.metodoPagoInterno,
+      estado: 'Facturado',
+      notas: billingPayload.notas,
+    });
+  };
+
+  // 4. Full Modify / Edit of any existing Order or Invoice (reconciles stock automatically)
+  const updateOrderFull = (
+    orderId: string,
+    payload: {
+      clienteNombre: string;
+      clienteDocumento?: string;
+      clienteTelefono?: string;
+      clienteDireccion: string;
+      transportadora?: string;
+      guiaSeguimiento?: string;
+      items: CartItem[];
+      costoEnvio: number;
+      descuentoManual?: number;
+      metodoPagoInterno: MetodoPagoInterno;
+      estado: EstadoPedido;
+      notas?: string;
+    }
+  ): { success: boolean; order?: Order; message?: string } => {
+    const targetOrder = orders.find((o) => o.id === orderId);
+    if (!targetOrder) {
+      return { success: false, message: 'Factura o pedido no encontrado.' };
+    }
+    if (!payload.items || payload.items.length === 0) {
+      return { success: false, message: 'La factura debe tener al menos un producto.' };
+    }
+
+    const shouldDeductNext = isStockCommitted(payload.estado);
+    const stockRes = reconcileClientStock(
+      products,
+      targetOrder.items,
+      targetOrder.stockDeducted,
+      payload.items,
+      shouldDeductNext
+    );
+
+    if (!stockRes.success) {
+      return { success: false, message: stockRes.errorMessage };
+    }
+
+    const formattedDate = getFormattedNow();
+    const nextSeq = storeConfig.nextInvoiceSequence || 1003;
+    let assignedInvoice = targetOrder.invoiceNumber;
+    let fechaFacturacion = targetOrder.fechaFacturacion;
+    let seqIncremented = false;
+
+    if (shouldDeductNext && !assignedInvoice) {
+      assignedInvoice = `FAC-${nextSeq}`;
+      fechaFacturacion = formattedDate;
+      seqIncremented = true;
+    }
+
+    const subtotal = payload.items.reduce((acc, it) => acc + it.precio * it.cantidad, 0);
+    const envio = Math.max(0, Number(payload.costoEnvio) || 0);
+    const descuento = Math.max(0, Number(payload.descuentoManual) || 0);
+    const total = Math.max(0, subtotal + envio - descuento);
+
+    const updatedOrder: Order = {
+      ...targetOrder,
+      invoiceNumber: assignedInvoice,
+      fechaFacturacion,
+      fechaDespacho:
+        payload.estado === 'Despachado' && !targetOrder.fechaDespacho
+          ? formattedDate
+          : targetOrder.fechaDespacho,
+      fechaEntrega:
+        payload.estado === 'Entregado' && !targetOrder.fechaEntrega
+          ? formattedDate
+          : targetOrder.fechaEntrega,
+      clienteNombre: payload.clienteNombre.trim() || targetOrder.clienteNombre,
+      clienteDocumento: payload.clienteDocumento?.trim() ?? targetOrder.clienteDocumento,
+      clienteTelefono: payload.clienteTelefono?.trim() ?? targetOrder.clienteTelefono,
+      clienteDireccion: payload.clienteDireccion.trim() || targetOrder.clienteDireccion,
+      transportadora: payload.transportadora?.trim() ?? targetOrder.transportadora,
+      guiaSeguimiento: payload.guiaSeguimiento?.trim() ?? targetOrder.guiaSeguimiento,
+      items: payload.items,
+      subtotal,
+      costoEnvio: envio,
+      descuentoManual: descuento,
+      envioTexto: envio > 0 ? formatCOP(envio) : 'Gratis / Local Cartagena',
+      total,
+      estado: payload.estado,
+      metodoPagoInterno: payload.metodoPagoInterno,
+      stockDeducted: shouldDeductNext,
+      notas: payload.notas ?? targetOrder.notas,
+    };
+
+    saveProductsLocal(stockRes.products);
+    saveOrdersLocal(orders.map((o) => (o.id === orderId ? updatedOrder : o)));
+    if (seqIncremented) {
+      saveConfigLocal({ ...storeConfig, nextInvoiceSequence: nextSeq + 1 });
+    }
+
+    // Trigger Push Notification if status changed to 'Despachado' or 'Entregado'
+    if (
+      (payload.estado === 'Despachado' || payload.estado === 'Entregado') &&
+      targetOrder.estado !== payload.estado
+    ) {
+      const notif = buildClientNotification(updatedOrder, payload.estado);
+      knownNotificationIdsRef.current.add(notif.id);
+      saveNotificationsLocal([notif, ...notifications]);
+      dispatchNativeAndInAppPush(notif);
+    }
+
+    fetch('/api/orders', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId, ...payload }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.orders)) {
+          saveOrdersLocal(data.orders);
+          if (Array.isArray(data.products)) saveProductsLocal(data.products);
+          if (Array.isArray(data.notifications)) {
+            data.notifications.forEach((n: StoreNotification) =>
+              knownNotificationIdsRef.current.add(n.id)
+            );
+            saveNotificationsLocal(data.notifications);
+          }
+        }
+      })
+      .catch(() => {});
+
+    return { success: true, order: updatedOrder };
+  };
+
+  // 5. Delete an Order / Invoice and restore stock
+  const deleteOrder = (orderId: string): { success: boolean; message?: string } => {
+    const target = orders.find((o) => o.id === orderId);
+    if (!target) {
+      return { success: false, message: 'Factura no encontrada.' };
+    }
+
+    if (target.stockDeducted) {
+      const stockRes = reconcileClientStock(products, target.items, true, [], false);
+      saveProductsLocal(stockRes.products);
+    }
+
+    saveOrdersLocal(orders.filter((o) => o.id !== orderId));
+    saveNotificationsLocal(notifications.filter((n) => n.orderId !== orderId));
+
+    fetch(`/api/orders?id=${encodeURIComponent(orderId)}`, {
+      method: 'DELETE',
+    }).catch(() => {});
+
+    return { success: true };
+  };
+
+  // 6. Quick Status Update (Triggers Push Notification when changing to 'Despachado' or 'Entregado')
+  const updateOrderStatus = (
+    orderId: string,
+    nuevoEstado: EstadoPedido,
+    trackingInfo?: { transportadora?: string; guiaSeguimiento?: string }
+  ) => {
+    const target = orders.find((o) => o.id === orderId);
+    if (!target) return;
+
+    updateOrderFull(orderId, {
+      clienteNombre: target.clienteNombre,
+      clienteDocumento: target.clienteDocumento,
+      clienteTelefono: target.clienteTelefono,
+      clienteDireccion: target.clienteDireccion,
+      transportadora: trackingInfo?.transportadora ?? target.transportadora,
+      guiaSeguimiento: trackingInfo?.guiaSeguimiento ?? target.guiaSeguimiento,
+      items: target.items,
+      costoEnvio: target.costoEnvio,
+      descuentoManual: target.descuentoManual,
+      metodoPagoInterno: target.metodoPagoInterno,
+      estado: nuevoEstado,
+      notas: target.notas,
+    });
+  };
+
+  const updatePluginConnector = async (
+    pluginId: string,
+    updates: Partial<PluginConnector>
+  ) => {
+    const nextPlugins = plugins.map((p) =>
+      p.id === pluginId
+        ? { ...p, ...updates, ultimaSincronizacion: `Actualizado ${getFormattedNow()}` }
+        : p
+    );
+    setPlugins(nextPlugins);
+    try {
+      localStorage.setItem(STORAGE_KEY_PLUGINS, JSON.stringify(nextPlugins));
+    } catch (e) {
+      console.error(e);
+    }
+
+    try {
+      const res = await fetch('/api/plugins', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pluginId, ...updates }),
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.plugins)) {
+        setPlugins(data.plugins);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const updateStoreConfig = (configUpdate: Partial<StoreConfig>) => {
+    const nextCfg = { ...storeConfig, ...configUpdate };
+    saveConfigLocal(nextCfg);
+
+    fetch('/api/store', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storeConfig: nextCfg }),
+    }).catch(() => {});
+  };
+
+  return (
+    <StoreContext.Provider
+      value={{
+        products,
+        cart,
+        orders,
+        favorites,
+        storeConfig,
+        plugins,
+        notifications,
+        unreadNotificationsCount,
+        activePushToast,
+        dismissPushToast,
+        markAllNotificationsRead,
+        browserPushPermission,
+        requestBrowserPushPermission,
+        triggerManualPushTest,
+        cartTotalCount,
+        cartSubtotal,
+        criticalAlerts,
+        isAdminAuthenticated,
+        authenticateAdmin,
+        logoutAdmin,
+        toggleFavorite,
+        createProduct,
+        updateProduct,
+        deleteProduct,
+        updateVariantStock,
+        updateProductAlertThreshold,
+        resetToInitialCatalog,
+        addToCart,
+        updateCartQuantity,
+        removeFromCart,
+        clearCart,
+        createOrder,
+        createPosInvoice,
+        emitirFacturaOrder,
+        updateOrderFull,
+        deleteOrder,
+        updateOrderStatus,
+        updatePluginConnector,
+        updateStoreConfig,
+      }}
+    >
+      {children}
+    </StoreContext.Provider>
+  );
+}
+
+export function useStore() {
+  const context = useContext(StoreContext);
+  if (!context) {
+    throw new Error('useStore must be used within a StoreProvider');
+  }
+  return context;
+}

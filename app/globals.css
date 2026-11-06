@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .shadow-soft {
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.06);
+  }
+  .shadow-dock {
+    box-shadow: 0 16px 40px -8px rgba(17, 17, 17, 0.25);
+  }
+}
+
+/* Clean minimalist light scrollbar matching Dribbble #27573251 */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #ffffff;
+}
+::-webkit-scrollbar-thumb {
+  background: #e4e4e7;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #111111;
+}
