@@ -62,7 +62,7 @@ function PoliticasContent() {
           <div className="flex items-center gap-2.5">
             <div className="relative w-8 h-8 rounded-full overflow-hidden border border-zinc-200 bg-[#111111]">
               <Image
-                src="/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png"
+                src="/assets/brand/logo-la-santa.png"
                 alt="Store Logo"
                 fill
                 className="object-cover"

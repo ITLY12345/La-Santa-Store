@@ -13,13 +13,13 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: '#d4af37',
     icons: [
       {
-        src: '/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png',
+        src: '/assets/brand/logo-la-santa.png',
         sizes: '192x192',
         type: 'image/png',
         purpose: 'any',
       },
       {
-        src: '/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png',
+        src: '/assets/brand/logo-la-santa.png',
         sizes: '512x512',
         type: 'image/png',
         purpose: 'any',

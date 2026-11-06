@@ -5,12 +5,19 @@ import { StoreConfig } from './data';
 export const ADMIN_COOKIE_NAME = 'lasanta_admin_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
+const globalForAuth = globalThis as unknown as {
+  __lasantaEphemeralSecret?: string;
+};
+
 function getServerSecret(): string {
-  return (
-    process.env.AUTH_SECRET ||
-    process.env.WEBHOOK_SECRET ||
-    'lasanta-store-cartagena-hmac-secret-2026-prod'
-  );
+  const configured = process.env.AUTH_SECRET?.trim();
+  if (configured && configured.length >= 32) {
+    return configured;
+  }
+  if (!globalForAuth.__lasantaEphemeralSecret) {
+    globalForAuth.__lasantaEphemeralSecret = crypto.randomBytes(32).toString('hex');
+  }
+  return globalForAuth.__lasantaEphemeralSecret;
 }
 
 /**

@@ -205,21 +205,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               .then((reg) => {
                 reg.showNotification(notif.titulo, {
                   body: notif.mensaje,
-                  icon: '/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png',
-                  badge: '/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png',
+                  icon: '/assets/brand/logo-la-santa.png',
+                  badge: '/assets/brand/logo-la-santa.png',
                   tag: notif.id,
                 });
               })
               .catch(() => {
                 new window.Notification(notif.titulo, {
                   body: notif.mensaje,
-                  icon: '/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png',
+                  icon: '/assets/brand/logo-la-santa.png',
                 });
               });
           } else {
             new window.Notification(notif.titulo, {
               body: notif.mensaje,
-              icon: '/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png',
+              icon: '/assets/brand/logo-la-santa.png',
             });
           }
         } catch (err) {

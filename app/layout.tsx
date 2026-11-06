@@ -16,8 +16,8 @@ export const metadata: Metadata = {
     'Catálogo móvil minimalista con inventario en tiempo real y pedidos directos por WhatsApp.',
   manifest: '/manifest.webmanifest',
   icons: {
-    icon: '/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png',
-    apple: '/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png',
+    icon: '/assets/brand/logo-la-santa.png',
+    apple: '/assets/brand/logo-la-santa.png',
   },
   openGraph: {
     title: 'Mobile Ecommerce App | Catálogo Oficial',

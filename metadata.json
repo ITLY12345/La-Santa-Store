@@ -1,6 +1,5 @@
 {
   "name": "La Santa Store",
-  "description": "Mobile-First Streetwear Store & WhatsApp Ordering Engine with Real-Time Inventory Control",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "description": "Tienda Oficial de Streetwear, Camisetas, Chanclas y Bolsos — Cartagena de Indias. Sistema POS & ERP Integrado.",
+  "requestFramePermissions": []
 }

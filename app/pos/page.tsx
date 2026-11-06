@@ -79,7 +79,7 @@ export default function POSPage() {
           >
             <div className="relative w-16 h-16 rounded-full overflow-hidden border border-zinc-200 mx-auto bg-[#111111]">
               <Image
-                src="/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png"
+                src="/assets/brand/logo-la-santa.png"
                 alt="Logo"
                 fill
                 className="object-cover"

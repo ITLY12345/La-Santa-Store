@@ -108,7 +108,7 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
             <div className="flex items-center gap-3.5">
               <div className="relative w-14 h-14 rounded-2xl overflow-hidden border border-zinc-200 bg-[#111111] shrink-0">
                 <Image
-                  src="/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png"
+                  src="/assets/brand/logo-la-santa.png"
                   alt="Logo de la Tienda"
                   fill
                   className="object-cover"

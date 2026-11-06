@@ -29,7 +29,7 @@ export function Header({
         >
           <div className="relative w-11 h-11 rounded-full overflow-hidden border border-zinc-200 bg-[#111111] shrink-0 shadow-xs">
             <Image
-              src="/assets/aistudio/file_00000000abd081f5882f0c7a3c3bc919_68d1d587.png"
+              src="/assets/brand/logo-la-santa.png"
               alt="Logo Perfil Tienda"
               fill
               className="object-cover"
