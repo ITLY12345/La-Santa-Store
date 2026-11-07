@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readDbAsync, writeDbAsync } from '@/lib/server-db';
+import { readDbAsync, writeDbAsync, buildKardexMove } from '@/lib/server-db';
 import { isAdminRequest, unauthorizedResponse } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       products: inventory,
+      stockMoves: db.stockMoves || [],
       resumen: {
         totalArticulos: db.products.length,
         totalUnidades,
@@ -78,23 +79,62 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { action, productoId, varianteId, newStock, newThreshold } = body;
+    const { action, productoId, varianteId, newStock, newThreshold, motivo } =
+      body;
     const db = await readDbAsync();
 
     if (action === 'updateVariantStock') {
+      const targetStock = Math.max(0, Number(newStock) || 0);
+      const newMoves = [...(db.stockMoves || [])];
+
       db.products = db.products.map((p) => {
         if (p.id !== productoId) return p;
         return {
           ...p,
-          variantes: p.variantes.map((v) =>
-            v.id_variante === varianteId
-              ? { ...v, stock_disponible: Math.max(0, Number(newStock) || 0) }
-              : v
-          ),
+          variantes: p.variantes.map((v) => {
+            if (v.id_variante !== varianteId) return v;
+            const prevStock = v.stock_disponible;
+            const delta = targetStock - prevStock;
+            if (delta !== 0) {
+              newMoves.unshift(
+                buildKardexMove({
+                  varianteId: v.id_variante,
+                  sku: v.sku || v.id_variante,
+                  productoNombre: p.nombre,
+                  talla: v.talla,
+                  color: v.color,
+                  documentoRef: 'INV-MANUAL',
+                  tipoMovimiento:
+                    delta > 0 ? 'ENTRADA_COMPRA' : 'AJUSTE_INVENTARIO',
+                  cantidad: delta,
+                  stockAnterior: prevStock,
+                  stockResultante: targetStock,
+                  motivo:
+                    typeof motivo === 'string' && motivo.trim()
+                      ? motivo.trim()
+                      : delta > 0
+                      ? 'Ingreso manual de existencias en bodega Cartagena'
+                      : 'Ajuste manual de inventario en consola POS',
+                })
+              );
+            }
+            const res = v.stock_reservado || 0;
+            return {
+              ...v,
+              stock_disponible: targetStock,
+              stock_fisico: targetStock + res,
+            };
+          }),
         };
       });
+
+      db.stockMoves = newMoves.slice(0, 500);
       const saved = await writeDbAsync(db);
-      return NextResponse.json({ success: true, products: saved.products });
+      return NextResponse.json({
+        success: true,
+        products: saved.products,
+        stockMoves: saved.stockMoves,
+      });
     }
 
     if (action === 'updateThreshold') {
@@ -103,6 +143,7 @@ export async function PUT(req: NextRequest) {
         return {
           ...p,
           configuracion_alertas: {
+            ...p.configuracion_alertas,
             stock_minimo_alerta: Math.max(0, Number(newThreshold) || 0),
           },
         };

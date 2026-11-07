@@ -109,6 +109,22 @@ export function recordPinAttempt(ip: string, success: boolean): void {
   });
 }
 
+export function checkRateLimit(ip: string): { allowed: boolean; retryAfterSec?: number } {
+  const res = checkPinRateLimit(ip);
+  return {
+    allowed: res.allowed,
+    ...(res.retryAfterSeconds > 0 ? { retryAfterSec: res.retryAfterSeconds } : {}),
+  };
+}
+
+export function recordFailedPinAttempt(ip: string): void {
+  recordPinAttempt(ip, false);
+}
+
+export function clearFailedPinAttempts(ip: string): void {
+  recordPinAttempt(ip, true);
+}
+
 /**
  * Generic IP rate limiter for public endpoints (e.g. POST /api/orders, POST /api/orders/track).
  */

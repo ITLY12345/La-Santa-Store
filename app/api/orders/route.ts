@@ -56,8 +56,22 @@ export async function POST(req: NextRequest) {
 
       const estadoInicial: EstadoPedido = body.estado || 'Facturado';
       const shouldDeduct = isStockCommittedState(estadoInicial);
+      const nextSeq = db.storeConfig.nextInvoiceSequence || 1003;
+      const prefix = db.storeConfig.prefijoFactura || 'FAC';
+      const invoiceNum = `${prefix}-${nextSeq}`;
+      const orderNum = `#POS-${nextSeq}`;
 
-      const stockResult = reconcileStockItems(db.products, [], false, items, shouldDeduct);
+      const stockResult = reconcileStockItems(
+        db.products,
+        [],
+        false,
+        items,
+        shouldDeduct,
+        {
+          documentoRef: invoiceNum,
+          motivoSalida: `Venta POS Factura ${invoiceNum}`,
+        }
+      );
       if (!stockResult.success) {
         return NextResponse.json(
           { success: false, message: stockResult.errorMessage },
@@ -65,9 +79,6 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const nextSeq = db.storeConfig.nextInvoiceSequence || 1003;
-      const invoiceNum = `FAC-${nextSeq}`;
-      const orderNum = `#POS-${nextSeq}`;
       const subtotal = items.reduce(
         (acc: number, it: { precio: number; cantidad: number }) => acc + it.precio * it.cantidad,
         0
@@ -116,6 +127,12 @@ export async function POST(req: NextRequest) {
       };
 
       db.products = stockResult.products;
+      if (stockResult.generatedMoves.length > 0) {
+        db.stockMoves = [
+          ...stockResult.generatedMoves,
+          ...(db.stockMoves || []),
+        ].slice(0, 500);
+      }
       db.orders = [newOrder, ...db.orders];
       db.storeConfig.nextInvoiceSequence = nextSeq + 1;
 
@@ -130,6 +147,7 @@ export async function POST(req: NextRequest) {
         order: newOrder,
         products: saved.products,
         orders: saved.orders,
+        stockMoves: saved.stockMoves,
         storeConfig: sanitizePublicStoreConfig(saved.storeConfig),
         notifications: saved.notifications,
       });
@@ -315,13 +333,24 @@ export async function PUT(req: NextRequest) {
     }
 
     const shouldDeductNext = isStockCommittedState(nextEstado);
+    const nextSeq = db.storeConfig.nextInvoiceSequence || 1003;
+    const prefix = db.storeConfig.prefijoFactura || 'FAC';
+    const docRef =
+      existingOrder.invoiceNumber ||
+      (shouldDeductNext ? `${prefix}-${nextSeq}` : existingOrder.orderNumber);
 
     const stockRes = reconcileStockItems(
       db.products,
       existingOrder.items,
       existingOrder.stockDeducted,
       nextItems,
-      shouldDeductNext
+      shouldDeductNext,
+      {
+        orderId: existingOrder.id,
+        documentoRef: docRef,
+        motivoSalida: `Facturación de orden ${existingOrder.orderNumber} (${docRef})`,
+        motivoReintegro: `Reversión de inventario sobre ${docRef}`,
+      }
     );
 
     if (!stockRes.success) {
@@ -338,10 +367,9 @@ export async function PUT(req: NextRequest) {
     let fechaEntrega = existingOrder.fechaEntrega;
     let fechaNotaCredito = existingOrder.fechaNotaCredito;
     let motivoNotaCredito = existingOrder.motivoNotaCredito;
-    const nextSeq = db.storeConfig.nextInvoiceSequence || 1003;
 
     if (shouldDeductNext && !assignedInvoice) {
-      assignedInvoice = `FAC-${nextSeq}`;
+      assignedInvoice = `${prefix}-${nextSeq}`;
       fechaFacturacion = formattedDate;
       db.storeConfig.nextInvoiceSequence = nextSeq + 1;
     }
@@ -432,6 +460,12 @@ export async function PUT(req: NextRequest) {
     };
 
     db.products = stockRes.products;
+    if (stockRes.generatedMoves.length > 0) {
+      db.stockMoves = [
+        ...stockRes.generatedMoves,
+        ...(db.stockMoves || []),
+      ].slice(0, 500);
+    }
     db.orders[targetIndex] = updatedOrder;
 
     let createdNotification = null;
@@ -450,6 +484,7 @@ export async function PUT(req: NextRequest) {
       createdNotification,
       products: saved.products,
       orders: saved.orders,
+      stockMoves: saved.stockMoves,
       storeConfig: sanitizePublicStoreConfig(saved.storeConfig),
       notifications: saved.notifications,
     });
@@ -486,21 +521,38 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
+    const nextNcSeq = db.storeConfig.nextCreditNoteSequence || 1001;
+    const creditNoteNumber = target.invoiceNumber
+      ? target.creditNoteNumber || `NC-${nextNcSeq}`
+      : undefined;
+
     if (target.stockDeducted) {
       const stockRes = reconcileStockItems(
         db.products,
         target.items,
         true,
         [],
-        false
+        false,
+        {
+          orderId: target.id,
+          documentoRef:
+            creditNoteNumber || target.invoiceNumber || target.orderNumber,
+          motivoReintegro: `Devolución a inventario por Nota Crédito ${
+            creditNoteNumber || target.invoiceNumber
+          }`,
+        }
       );
       db.products = stockRes.products;
+      if (stockRes.generatedMoves.length > 0) {
+        db.stockMoves = [
+          ...stockRes.generatedMoves,
+          ...(db.stockMoves || []),
+        ].slice(0, 500);
+      }
     }
 
     // Estándar ERP / DIAN: Las facturas emitidas (con FAC-XXXX) son inmutables y se anulan mediante Nota Crédito (NC-XXXX)
-    if (target.invoiceNumber) {
-      const nextNcSeq = db.storeConfig.nextCreditNoteSequence || 1001;
-      const creditNoteNumber = target.creditNoteNumber || `NC-${nextNcSeq}`;
+    if (target.invoiceNumber && creditNoteNumber) {
       if (!target.creditNoteNumber) {
         db.storeConfig.nextCreditNoteSequence = nextNcSeq + 1;
       }
@@ -528,6 +580,7 @@ export async function DELETE(req: NextRequest) {
       success: true,
       products: saved.products,
       orders: saved.orders,
+      stockMoves: saved.stockMoves,
       storeConfig: sanitizePublicStoreConfig(saved.storeConfig),
       notifications: saved.notifications,
     });

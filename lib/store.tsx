@@ -11,6 +11,7 @@ import {
   StoreConfig,
   PluginConnector,
   StoreNotification,
+  StockMove,
   INITIAL_PRODUCTS,
   DEFAULT_STORE_CONFIG,
   INITIAL_PLUGINS,
@@ -50,6 +51,7 @@ interface StoreContextType {
   storeConfig: StoreConfig;
   plugins: PluginConnector[];
   notifications: StoreNotification[];
+  stockMoves: StockMove[];
   unreadNotificationsCount: number;
   activePushToast: StoreNotification | null;
   dismissPushToast: () => void;
@@ -158,7 +160,10 @@ interface StoreContextType {
     updates: Partial<PluginConnector>
   ) => Promise<void>;
   // Config actions
-  updateStoreConfig: (config: Partial<StoreConfig>) => void;
+  updateStoreConfig: (
+    config: Partial<StoreConfig>,
+    currentPin?: string
+  ) => Promise<{ success: boolean; message?: string }>;
 }
 
 const StoreContext = createContext<StoreContextType | null>(null);
@@ -185,6 +190,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [storeConfig, setStoreConfig] = useState<StoreConfig>(PUBLIC_SAFE_DEFAULT_CONFIG);
   const [plugins, setPlugins] = useState<PluginConnector[]>(INITIAL_PLUGINS);
   const [notifications, setNotifications] = useState<StoreNotification[]>([]);
+  const [stockMoves, setStockMoves] = useState<StockMove[]>([]);
   const [activePushToast, setActivePushToast] = useState<StoreNotification | null>(null);
   const [browserPushPermission, setBrowserPushPermission] = useState<
     NotificationPermission | 'unsupported'
@@ -315,6 +321,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           }
           if (Array.isArray(data.plugins)) {
             setPlugins(data.plugins);
+          }
+          if (Array.isArray(data.stockMoves)) {
+            setStockMoves(data.stockMoves);
           }
           if (Array.isArray(data.notifications)) {
             handleIncomingNotifications(data.notifications, isInitial);
@@ -693,6 +702,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json();
         if (data.success && Array.isArray(data.products)) {
           saveProductsLocal(data.products);
+          if (Array.isArray(data.stockMoves)) {
+            setStockMoves(data.stockMoves);
+          }
         }
       })
       .catch((err) => {
@@ -1061,6 +1073,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (data.success && Array.isArray(data.orders)) {
           setOrders(data.orders);
           if (Array.isArray(data.products)) saveProductsLocal(data.products);
+          if (Array.isArray(data.stockMoves)) setStockMoves(data.stockMoves);
           if (data.storeConfig) {
             setStoreConfig({
               ...PUBLIC_SAFE_DEFAULT_CONFIG,
@@ -1225,6 +1238,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (data.success && Array.isArray(data.orders)) {
           setOrders(data.orders);
           if (Array.isArray(data.products)) saveProductsLocal(data.products);
+          if (Array.isArray(data.stockMoves)) setStockMoves(data.stockMoves);
           if (Array.isArray(data.notifications)) {
             data.notifications.forEach((n: StoreNotification) =>
               knownNotificationIdsRef.current.add(n.id)
@@ -1284,6 +1298,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (data.success) {
           if (Array.isArray(data.orders)) setOrders(data.orders);
           if (Array.isArray(data.products)) saveProductsLocal(data.products);
+          if (Array.isArray(data.stockMoves)) setStockMoves(data.stockMoves);
           if (data.storeConfig) {
             setStoreConfig({
               ...PUBLIC_SAFE_DEFAULT_CONFIG,
@@ -1353,7 +1368,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const updateStoreConfig = (configUpdate: Partial<StoreConfig>) => {
+  const updateStoreConfig = async (
+    configUpdate: Partial<StoreConfig>,
+    currentPin?: string
+  ): Promise<{ success: boolean; message?: string }> => {
     const previousCfg = structuredClone(storeConfig);
     const nextCfg: StoreConfig = {
       ...storeConfig,
@@ -1362,31 +1380,43 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
     setStoreConfig(nextCfg);
 
-    fetch('/api/store', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        storeConfig: {
-          ...storeConfig,
-          ...configUpdate,
-        },
-      }),
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        if (data.success && data.storeConfig) {
-          setStoreConfig({
-            ...PUBLIC_SAFE_DEFAULT_CONFIG,
-            ...data.storeConfig,
-            adminPin: '',
-          });
-        }
-      })
-      .catch((err) => {
-        console.error('Error guardando configuración corporativa, revirtiendo:', err);
-        setStoreConfig(previousCfg);
+    try {
+      const res = await fetch('/api/store', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPin,
+          storeConfig: {
+            ...storeConfig,
+            ...configUpdate,
+          },
+        }),
       });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setStoreConfig(previousCfg);
+        return {
+          success: false,
+          message:
+            data.message || 'No se pudo actualizar la configuración corporativa.',
+        };
+      }
+      if (data.storeConfig) {
+        setStoreConfig({
+          ...PUBLIC_SAFE_DEFAULT_CONFIG,
+          ...data.storeConfig,
+          adminPin: '',
+        });
+      }
+      return { success: true };
+    } catch (err) {
+      console.error('Error guardando configuración corporativa, revirtiendo:', err);
+      setStoreConfig(previousCfg);
+      return {
+        success: false,
+        message: 'Error de red al guardar la configuración.',
+      };
+    }
   };
 
   return (
@@ -1399,6 +1429,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         storeConfig,
         plugins,
         notifications,
+        stockMoves,
         unreadNotificationsCount,
         activePushToast,
         dismissPushToast,

@@ -57,7 +57,10 @@ export function CartDrawer({
   );
 
   const shippingDetails = useMemo(() => {
-    const freeCartagenaThreshold = 200000;
+    const freeCartagenaThreshold = storeConfig.envioGratisDesde ?? 200000;
+    const rateCartagena = storeConfig.tarifaEnvioCartagena ?? 8000;
+    const rateNacional = storeConfig.tarifaEnvioNacional ?? 16000;
+
     if (shippingOption === 'recoger') {
       return {
         costo: 0,
@@ -67,21 +70,29 @@ export function CartDrawer({
     }
     if (shippingOption === 'nacional') {
       return {
-        costo: 16000,
+        costo: rateNacional,
         label: 'Envío Nacional Asegurado (Coordinadora / Envía)',
-        badge: formatCOP(16000),
+        badge: formatCOP(rateNacional),
       };
     }
     // Cartagena Urbano
     const isFree = cartSubtotal >= freeCartagenaThreshold;
     return {
-      costo: isFree ? 0 : 8000,
+      costo: isFree ? 0 : rateCartagena,
       label: isFree
-        ? 'Domicilio Express Cartagena (Gratis por compra ≥ $200.000)'
+        ? `Domicilio Express Cartagena (Gratis por compra ≥ ${formatCOP(
+            freeCartagenaThreshold
+          )})`
         : 'Domicilio Express Urbano (Cartagena de Indias)',
-      badge: isFree ? 'Gratis' : formatCOP(8000),
+      badge: isFree ? 'Gratis' : formatCOP(rateCartagena),
     };
-  }, [shippingOption, cartSubtotal]);
+  }, [
+    shippingOption,
+    cartSubtotal,
+    storeConfig.envioGratisDesde,
+    storeConfig.tarifaEnvioCartagena,
+    storeConfig.tarifaEnvioNacional,
+  ]);
 
   const totalPagar = cartSubtotal + shippingDetails.costo;
 

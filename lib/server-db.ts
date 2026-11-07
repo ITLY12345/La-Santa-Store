@@ -1,7 +1,13 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import mysql from 'mysql2/promise';
+import {
+  isMySqlConfigured,
+  getMySqlPool,
+  INITIALIZE_SCHEMA_SQL,
+} from './mysql-db';
 import {
   Producto,
   Order,
@@ -10,19 +16,26 @@ import {
   PluginConnector,
   StoreNotification,
   EstadoPedido,
+  StockMove,
+  TipoMovimientoKardex,
   INITIAL_PRODUCTS,
   INITIAL_ORDERS,
   DEFAULT_STORE_CONFIG,
   INITIAL_PLUGINS,
   INITIAL_NOTIFICATIONS,
+  INITIAL_STOCK_MOVES,
 } from './data';
 
 // Persistent storage outside the Next.js build output so CI/CD re-deployments never wipe local mirror
 const EXTERNAL_PERSISTENT_DIR =
-  process.env.PERSISTENT_DATA_DIR || path.join(os.homedir(), '.lasanta_store_persistent');
+  process.env.PERSISTENT_DATA_DIR ||
+  path.join(os.homedir(), '.lasanta_store_persistent');
 const PRIMARY_DATA_DIR = path.join(process.cwd(), 'data');
 const PRIMARY_DB_PATH = path.join(PRIMARY_DATA_DIR, 'lasanta_store_db_v5.json');
-const EXTERNAL_DB_PATH = path.join(EXTERNAL_PERSISTENT_DIR, 'lasanta_store_db_v5.json');
+const EXTERNAL_DB_PATH = path.join(
+  EXTERNAL_PERSISTENT_DIR,
+  'lasanta_store_db_v5.json'
+);
 const FALLBACK_DB_PATH = path.join(os.tmpdir(), 'lasanta_store_db_v5.json');
 
 export interface ServerDatabase {
@@ -31,58 +44,16 @@ export interface ServerDatabase {
   storeConfig: StoreConfig;
   plugins: PluginConnector[];
   notifications: StoreNotification[];
+  stockMoves: StockMove[];
   updatedAt: string;
 }
 
 const globalForDb = globalThis as unknown as {
   __lasantaMemoryCache?: ServerDatabase | null;
-  __lasantaMysqlPool?: mysql.Pool | null;
   __lasantaMysqlInitialized?: boolean;
   __lasantaMysqlHydrated?: boolean;
   __lasantaWriteQueue?: Promise<unknown>;
 };
-
-function isMySqlConfigured(): boolean {
-  return Boolean(
-    process.env.DATABASE_URL ||
-      (process.env.DB_HOST && process.env.DB_USER && process.env.DB_NAME)
-  );
-}
-
-function getMySqlPool(): mysql.Pool | null {
-  if (!isMySqlConfigured()) return null;
-  if (globalForDb.__lasantaMysqlPool) {
-    return globalForDb.__lasantaMysqlPool;
-  }
-
-  try {
-    const pool = process.env.DATABASE_URL
-      ? mysql.createPool({
-          uri: process.env.DATABASE_URL,
-          waitForConnections: true,
-          connectionLimit: 10,
-          queueLimit: 0,
-          connectTimeout: 8000,
-        })
-      : mysql.createPool({
-          host: process.env.DB_HOST || 'localhost',
-          port: Number(process.env.DB_PORT || 3306),
-          user: process.env.DB_USER,
-          password: process.env.DB_PASSWORD,
-          database: process.env.DB_NAME,
-          waitForConnections: true,
-          connectionLimit: 10,
-          queueLimit: 0,
-          connectTimeout: 8000,
-        });
-
-    globalForDb.__lasantaMysqlPool = pool;
-    return pool;
-  } catch (err) {
-    console.error('Failed to create MySQL connection pool:', err);
-    return null;
-  }
-}
 
 async function ensureMySqlSchema(pool: mysql.Pool): Promise<void> {
   if (globalForDb.__lasantaMysqlInitialized) return;
@@ -96,49 +67,31 @@ async function ensureMySqlSchema(pool: mysql.Pool): Promise<void> {
       store_config_json LONGTEXT NOT NULL,
       plugins_json LONGTEXT NOT NULL,
       notifications_json LONGTEXT NOT NULL,
+      stock_moves_json LONGTEXT NULL,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
-  await pool.execute(`
-    CREATE TABLE IF NOT EXISTS lasanta_orders_ledger (
-      id VARCHAR(64) PRIMARY KEY,
-      order_number VARCHAR(32) NOT NULL,
-      invoice_number VARCHAR(32) NULL,
-      origen VARCHAR(32) NOT NULL,
-      estado VARCHAR(32) NOT NULL,
-      cliente_nombre VARCHAR(160) NOT NULL,
-      cliente_documento VARCHAR(64) NULL,
-      cliente_telefono VARCHAR(64) NULL,
-      subtotal DECIMAL(14,2) NOT NULL DEFAULT 0,
-      costo_envio DECIMAL(14,2) NOT NULL DEFAULT 0,
-      descuento DECIMAL(14,2) NOT NULL DEFAULT 0,
-      total DECIMAL(14,2) NOT NULL DEFAULT 0,
-      metodo_pago VARCHAR(64) NULL,
-      stock_deducted TINYINT(1) NOT NULL DEFAULT 0,
-      fecha VARCHAR(32) NOT NULL,
-      payload_json LONGTEXT NOT NULL,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      INDEX idx_order_number (order_number),
-      INDEX idx_invoice_number (invoice_number),
-      INDEX idx_estado (estado)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
+  // Ensure stock_moves_json column exists if table was created in an earlier migration
+  try {
+    await pool.execute(
+      `ALTER TABLE lasanta_store_state ADD COLUMN stock_moves_json LONGTEXT NULL`
+    );
+  } catch {
+    // Column already exists
+  }
 
-  await pool.execute(`
-    CREATE TABLE IF NOT EXISTS lasanta_products_catalog (
-      id VARCHAR(64) PRIMARY KEY,
-      referencia VARCHAR(64) NOT NULL,
-      nombre VARCHAR(160) NOT NULL,
-      categoria VARCHAR(64) NOT NULL,
-      precio_base DECIMAL(14,2) NOT NULL DEFAULT 0,
-      stock_total INT NOT NULL DEFAULT 0,
-      payload_json LONGTEXT NOT NULL,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      INDEX idx_categoria (categoria),
-      INDEX idx_referencia (referencia)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
+  // Initialize the 5 relational Odoo ERP tables (Section 5.3)
+  const ddlStatements = INITIALIZE_SCHEMA_SQL.split(';')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const stmt of ddlStatements) {
+    try {
+      await pool.execute(stmt);
+    } catch (err) {
+      console.warn('DDL statement warning:', err);
+    }
+  }
 
   globalForDb.__lasantaMysqlInitialized = true;
 }
@@ -168,15 +121,20 @@ function resolveDbFilePaths(): string[] {
 
 export function getFormattedNow(): string {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
-    now.getDate()
-  ).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(
-    now.getMinutes()
-  ).padStart(2, '0')}`;
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+    2,
+    '0'
+  )}-${String(now.getDate()).padStart(2, '0')} ${String(
+    now.getHours()
+  ).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 }
 
 export function isStockCommittedState(estado: EstadoPedido): boolean {
-  return estado === 'Facturado' || estado === 'Despachado' || estado === 'Entregado';
+  return (
+    estado === 'Facturado' ||
+    estado === 'Despachado' ||
+    estado === 'Entregado'
+  );
 }
 
 export function getInitialDb(): ServerDatabase {
@@ -186,19 +144,43 @@ export function getInitialDb(): ServerDatabase {
     storeConfig: structuredClone(DEFAULT_STORE_CONFIG),
     plugins: structuredClone(INITIAL_PLUGINS),
     notifications: structuredClone(INITIAL_NOTIFICATIONS),
+    stockMoves: structuredClone(INITIAL_STOCK_MOVES),
     updatedAt: new Date().toISOString(),
   };
 }
 
 function normalizeLoadedDb(parsed: Partial<ServerDatabase>): ServerDatabase {
+  const products = (
+    Array.isArray(parsed.products) ? parsed.products : INITIAL_PRODUCTS
+  ).map((p) => ({
+    ...p,
+    variantes: (p.variantes || []).map((v) => {
+      const disp = Math.max(0, Number(v.stock_disponible) || 0);
+      const res = Math.max(0, Number(v.stock_reservado) || 0);
+      const fis =
+        typeof v.stock_fisico === 'number' && v.stock_fisico >= disp
+          ? v.stock_fisico
+          : disp + res;
+      return {
+        ...v,
+        stock_fisico: fis,
+        stock_reservado: res,
+        stock_disponible: disp,
+      };
+    }),
+  }));
+
   return {
-    products: Array.isArray(parsed.products) ? parsed.products : INITIAL_PRODUCTS,
+    products,
     orders: Array.isArray(parsed.orders) ? parsed.orders : INITIAL_ORDERS,
     storeConfig: { ...DEFAULT_STORE_CONFIG, ...(parsed.storeConfig || {}) },
     plugins: Array.isArray(parsed.plugins) ? parsed.plugins : INITIAL_PLUGINS,
     notifications: Array.isArray(parsed.notifications)
       ? parsed.notifications
       : INITIAL_NOTIFICATIONS,
+    stockMoves: Array.isArray(parsed.stockMoves)
+      ? parsed.stockMoves
+      : INITIAL_STOCK_MOVES,
     updatedAt: parsed.updatedAt || new Date().toISOString(),
   };
 }
@@ -226,103 +208,224 @@ function writeDiskMirror(updated: ServerDatabase): void {
 }
 
 async function persistToMySqlTransactional(db: ServerDatabase): Promise<void> {
+  if (!isMySqlConfigured()) return;
   const pool = getMySqlPool();
-  if (!pool) return;
 
   await ensureMySqlSchema(pool);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
+    // 1. Canonical state snapshot
     await conn.execute(
       `INSERT INTO lasanta_store_state (
-        id, version, products_json, orders_json, store_config_json, plugins_json, notifications_json
-      ) VALUES (1, 1, ?, ?, ?, ?, ?)
+        id, version, products_json, orders_json, store_config_json, plugins_json, notifications_json, stock_moves_json
+      ) VALUES (1, 1, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         version = version + 1,
         products_json = VALUES(products_json),
         orders_json = VALUES(orders_json),
         store_config_json = VALUES(store_config_json),
         plugins_json = VALUES(plugins_json),
-        notifications_json = VALUES(notifications_json)`,
+        notifications_json = VALUES(notifications_json),
+        stock_moves_json = VALUES(stock_moves_json)`,
       [
         JSON.stringify(db.products),
         JSON.stringify(db.orders),
         JSON.stringify(db.storeConfig),
         JSON.stringify(db.plugins),
         JSON.stringify(db.notifications),
+        JSON.stringify(db.stockMoves || []),
       ]
     );
 
-    // Sync relational catalog table
+    // 2. Sync erp_store_config (res.config.settings)
+    const pinHash = crypto
+      .createHash('sha256')
+      .update(db.storeConfig.adminPin || '1234')
+      .digest('hex');
+    await conn.execute(
+      `INSERT INTO erp_store_config (
+        id, store_name, store_nit, store_phone, store_address, store_city,
+        corporate_tagline, admin_pin_hash, currency_symbol, delivery_note,
+        invoice_prefix, next_invoice_sequence, tax_rate_percent
+      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        store_name = VALUES(store_name),
+        store_nit = VALUES(store_nit),
+        store_phone = VALUES(store_phone),
+        store_address = VALUES(store_address),
+        store_city = VALUES(store_city),
+        corporate_tagline = VALUES(corporate_tagline),
+        admin_pin_hash = VALUES(admin_pin_hash),
+        currency_symbol = VALUES(currency_symbol),
+        delivery_note = VALUES(delivery_note),
+        invoice_prefix = VALUES(invoice_prefix),
+        next_invoice_sequence = VALUES(next_invoice_sequence),
+        tax_rate_percent = VALUES(tax_rate_percent)`,
+      [
+        (db.storeConfig.storeName || 'La Santa Store').slice(0, 120),
+        (db.storeConfig.storeNit || '901.482.319-4').slice(0, 30),
+        (db.storeConfig.storePhone || '573105559876').slice(0, 30),
+        (db.storeConfig.storeAddress || 'Cartagena de Indias').slice(0, 255),
+        (db.storeConfig.storeCity || 'Cartagena de Indias').slice(0, 100),
+        db.storeConfig.corporateTagline || '',
+        pinHash,
+        (db.storeConfig.currencySymbol || '$').slice(0, 10),
+        (db.storeConfig.deliveryNote || '').slice(0, 120),
+        (db.storeConfig.prefijoFactura || 'FAC').slice(0, 15),
+        Number(db.storeConfig.nextInvoiceSequence || 1003),
+        Number(db.storeConfig.taxRatePercent ?? 19),
+      ]
+    );
+
+    // 3. Sync erp_products & erp_product_variants (product.template & stock.quant)
     for (const prod of db.products) {
-      const totalStock = (prod.variantes || []).reduce(
-        (acc, v) => acc + (Number(v.stock_disponible) || 0),
-        0
-      );
       await conn.execute(
-        `INSERT INTO lasanta_products_catalog (
-          id, referencia, nombre, categoria, precio_base, stock_total, payload_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO erp_products (
+          id, referencia, nombre, categoria, marca_motivo, descripcion,
+          imagenes_json, costo_unitario, precio_base, impuesto_porcentaje,
+          stock_minimo_alerta, activo
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
         ON DUPLICATE KEY UPDATE
           referencia = VALUES(referencia),
           nombre = VALUES(nombre),
           categoria = VALUES(categoria),
+          marca_motivo = VALUES(marca_motivo),
+          descripcion = VALUES(descripcion),
+          imagenes_json = VALUES(imagenes_json),
+          costo_unitario = VALUES(costo_unitario),
           precio_base = VALUES(precio_base),
-          stock_total = VALUES(stock_total),
-          payload_json = VALUES(payload_json)`,
+          impuesto_porcentaje = VALUES(impuesto_porcentaje),
+          stock_minimo_alerta = VALUES(stock_minimo_alerta)`,
         [
           prod.id.slice(0, 64),
-          (prod.referencia || 'REF-GEN').slice(0, 64),
-          prod.nombre.slice(0, 160),
-          prod.categoria.slice(0, 64),
-          Number(prod.precio_base) || 0,
-          totalStock,
-          JSON.stringify(prod),
+          (prod.referencia || `REF-${prod.id}`).slice(0, 64),
+          prod.nombre.slice(0, 180),
+          prod.categoria,
+          (prod.marca_motivo || 'Colección Oficial').slice(0, 120),
+          prod.descripcion || '',
+          JSON.stringify(prod.imagenes || []),
+          Number(prod.costo_unitario || 0),
+          Number(prod.precio_base || 0),
+          Number(prod.iva_porcentaje ?? 19),
+          Number(prod.configuracion_alertas?.stock_minimo_alerta ?? 4),
         ]
       );
+
+      for (const v of prod.variantes || []) {
+        const disp = Math.max(0, Number(v.stock_disponible) || 0);
+        const res = Math.max(0, Number(v.stock_reservado) || 0);
+        const fis =
+          typeof v.stock_fisico === 'number' && v.stock_fisico >= disp
+            ? v.stock_fisico
+            : disp + res;
+        await conn.execute(
+          `INSERT INTO erp_product_variants (
+            id_variante, producto_id, sku, talla, color, diseno_motivo,
+            stock_fisico, stock_reservado
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            sku = VALUES(sku),
+            talla = VALUES(talla),
+            color = VALUES(color),
+            diseno_motivo = VALUES(diseno_motivo),
+            stock_fisico = VALUES(stock_fisico),
+            stock_reservado = VALUES(stock_reservado)`,
+          [
+            v.id_variante.slice(0, 64),
+            prod.id.slice(0, 64),
+            (v.sku || v.id_variante).slice(0, 64),
+            v.talla.slice(0, 32),
+            v.color.slice(0, 64),
+            (v.diseno_motivo || 'Estándar').slice(0, 120),
+            fis,
+            res,
+          ]
+        );
+      }
     }
 
-    // Sync relational orders/invoices ledger
+    // 4. Sync erp_invoices_orders (sale.order & account.move)
     for (const ord of db.orders) {
       await conn.execute(
-        `INSERT INTO lasanta_orders_ledger (
-          id, order_number, invoice_number, origen, estado,
-          cliente_nombre, cliente_documento, cliente_telefono,
-          subtotal, costo_envio, descuento, total, metodo_pago,
-          stock_deducted, fecha, payload_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO erp_invoices_orders (
+          id, order_number, invoice_number, credit_note_number, origen, estado,
+          cliente_nombre, cliente_documento, cliente_telefono, cliente_direccion,
+          transportadora, guia_seguimiento, subtotal_base, impuesto_iva,
+          costo_envio, descuento_manual, total, metodo_pago, stock_deducted,
+          notas, fecha_creacion, fecha_facturacion, fecha_despacho, fecha_entrega
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
-          order_number = VALUES(order_number),
           invoice_number = VALUES(invoice_number),
+          credit_note_number = VALUES(credit_note_number),
           estado = VALUES(estado),
           cliente_nombre = VALUES(cliente_nombre),
           cliente_documento = VALUES(cliente_documento),
           cliente_telefono = VALUES(cliente_telefono),
-          subtotal = VALUES(subtotal),
+          cliente_direccion = VALUES(cliente_direccion),
+          transportadora = VALUES(transportadora),
+          guia_seguimiento = VALUES(guia_seguimiento),
+          subtotal_base = VALUES(subtotal_base),
+          impuesto_iva = VALUES(impuesto_iva),
           costo_envio = VALUES(costo_envio),
-          descuento = VALUES(descuento),
+          descuento_manual = VALUES(descuento_manual),
           total = VALUES(total),
           metodo_pago = VALUES(metodo_pago),
           stock_deducted = VALUES(stock_deducted),
-          payload_json = VALUES(payload_json)`,
+          notas = VALUES(notas),
+          fecha_facturacion = VALUES(fecha_facturacion),
+          fecha_despacho = VALUES(fecha_despacho),
+          fecha_entrega = VALUES(fecha_entrega)`,
         [
           ord.id.slice(0, 64),
           ord.orderNumber.slice(0, 32),
           ord.invoiceNumber ? ord.invoiceNumber.slice(0, 32) : null,
-          ord.origen.slice(0, 32),
-          ord.estado.slice(0, 32),
+          ord.creditNoteNumber ? ord.creditNoteNumber.slice(0, 32) : null,
+          ord.origen,
+          ord.estado,
           ord.clienteNombre.slice(0, 160),
-          ord.clienteDocumento ? ord.clienteDocumento.slice(0, 64) : null,
-          ord.clienteTelefono ? ord.clienteTelefono.slice(0, 64) : null,
-          Number(ord.subtotal) || 0,
-          Number(ord.costoEnvio) || 0,
-          Number(ord.descuentoManual) || 0,
-          Number(ord.total) || 0,
-          ord.metodoPagoInterno ? ord.metodoPagoInterno.slice(0, 64) : null,
-          ord.stockDeducted ? 1 : 0,
-          ord.fecha.slice(0, 32),
-          JSON.stringify(ord),
+          (ord.clienteDocumento || '').slice(0, 40),
+          (ord.clienteTelefono || '').slice(0, 40),
+          (ord.clienteDireccion || '').slice(0, 255),
+          (ord.transportadora || '').slice(0, 80),
+          (ord.guiaSeguimiento || '').slice(0, 80),
+          Number(ord.baseGravable ?? ord.subtotal ?? 0),
+          Number(ord.impuestoIva ?? 0),
+          Number(ord.costoEnvio || 0),
+          Number(ord.descuentoManual || 0),
+          Number(ord.total || 0),
+          (ord.metodoPagoInterno || 'Por definir').slice(0, 60),
+          Boolean(ord.stockDeducted),
+          ord.notas || '',
+          ord.fecha.slice(0, 40),
+          ord.fechaFacturacion ? ord.fechaFacturacion.slice(0, 40) : null,
+          ord.fechaDespacho ? ord.fechaDespacho.slice(0, 40) : null,
+          ord.fechaEntrega ? ord.fechaEntrega.slice(0, 40) : null,
+        ]
+      );
+    }
+
+    // 5. Sync recent erp_stock_moves (immutable Kardex)
+    for (const mv of (db.stockMoves || []).slice(0, 200)) {
+      await conn.execute(
+        `INSERT IGNORE INTO erp_stock_moves (
+          id, variante_id, sku, producto_nombre, order_id, documento_ref,
+          tipo_movimiento, cantidad, stock_anterior, stock_resultante, motivo, fecha
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          mv.id.slice(0, 64),
+          mv.varianteId.slice(0, 64),
+          (mv.sku || '').slice(0, 64),
+          (mv.productoNombre || '').slice(0, 180),
+          mv.orderId ? mv.orderId.slice(0, 64) : null,
+          (mv.documentoRef || '').slice(0, 64),
+          mv.tipoMovimiento,
+          Number(mv.cantidad),
+          Number(mv.stockAnterior),
+          Number(mv.stockResultante),
+          (mv.motivo || '').slice(0, 255),
+          (mv.fecha || '').slice(0, 40),
         ]
       );
     }
@@ -377,12 +480,12 @@ export function readDb(): ServerDatabase {
  * falling back to the persistent local mirror when running offline.
  */
 export async function readDbAsync(): Promise<ServerDatabase> {
-  const pool = getMySqlPool();
-  if (pool) {
+  if (isMySqlConfigured()) {
     try {
+      const pool = getMySqlPool();
       await ensureMySqlSchema(pool);
       const [rows] = await pool.query<mysql.RowDataPacket[]>(
-        'SELECT products_json, orders_json, store_config_json, plugins_json, notifications_json, updated_at FROM lasanta_store_state WHERE id = 1 LIMIT 1'
+        'SELECT products_json, orders_json, store_config_json, plugins_json, notifications_json, stock_moves_json, updated_at FROM lasanta_store_state WHERE id = 1 LIMIT 1'
       );
 
       if (Array.isArray(rows) && rows.length > 0) {
@@ -393,13 +496,17 @@ export async function readDbAsync(): Promise<ServerDatabase> {
           storeConfig: JSON.parse(row.store_config_json),
           plugins: JSON.parse(row.plugins_json),
           notifications: JSON.parse(row.notifications_json),
-          updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+          stockMoves: row.stock_moves_json
+            ? JSON.parse(row.stock_moves_json)
+            : [],
+          updatedAt: row.updated_at
+            ? new Date(row.updated_at).toISOString()
+            : new Date().toISOString(),
         });
         globalForDb.__lasantaMemoryCache = loaded;
         globalForDb.__lasantaMysqlHydrated = true;
         return structuredClone(loaded);
       } else {
-        // Seed MySQL database from existing mirror or initial state
         const seed = readDb();
         await persistToMySqlTransactional(seed);
         globalForDb.__lasantaMysqlHydrated = true;
@@ -412,9 +519,6 @@ export async function readDbAsync(): Promise<ServerDatabase> {
   return readDb();
 }
 
-/**
- * Atomically persists database to memory cache, external disk mirror, and Hostinger MySQL.
- */
 export function writeDb(db: ServerDatabase): ServerDatabase {
   const updated: ServerDatabase = {
     ...db,
@@ -429,10 +533,9 @@ export function writeDb(db: ServerDatabase): ServerDatabase {
   return updated;
 }
 
-/**
- * Async transactional write that awaits Hostinger MySQL persistence before returning.
- */
-export async function writeDbAsync(db: ServerDatabase): Promise<ServerDatabase> {
+export async function writeDbAsync(
+  db: ServerDatabase
+): Promise<ServerDatabase> {
   const updated: ServerDatabase = {
     ...db,
     updatedAt: new Date().toISOString(),
@@ -447,25 +550,96 @@ export async function writeDbAsync(db: ServerDatabase): Promise<ServerDatabase> 
 }
 
 /**
- * Reconciles product variant stock when transitioning from oldItems (if oldDeducted)
- * to newItems (if newDeducted).
+ * Creates a standardized immutable Kardex entry (erp_stock_moves / stock.move).
+ */
+export function buildKardexMove(params: {
+  varianteId: string;
+  sku: string;
+  productoNombre: string;
+  talla: string;
+  color: string;
+  orderId?: string;
+  documentoRef: string;
+  tipoMovimiento: TipoMovimientoKardex;
+  cantidad: number;
+  stockAnterior: number;
+  stockResultante: number;
+  motivo: string;
+}): StockMove {
+  return {
+    id: `mv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    varianteId: params.varianteId,
+    sku: params.sku,
+    productoNombre: params.productoNombre,
+    talla: params.talla,
+    color: params.color,
+    orderId: params.orderId,
+    documentoRef: params.documentoRef,
+    tipoMovimiento: params.tipoMovimiento,
+    cantidad: params.cantidad,
+    stockAnterior: params.stockAnterior,
+    stockResultante: params.stockResultante,
+    motivo: params.motivo,
+    fecha: getFormattedNow(),
+  };
+}
+
+/**
+ * Reconciles product variant stock (stock_fisico, stock_reservado, stock_disponible)
+ * and generates immutable Kardex entries (StockMove[]).
  */
 export function reconcileStockItems(
   products: Producto[],
   oldItems: CartItem[],
   oldDeducted: boolean,
   newItems: CartItem[],
-  newDeducted: boolean
-): { success: boolean; products: Producto[]; errorMessage?: string } {
+  newDeducted: boolean,
+  kardexContext?: {
+    orderId?: string;
+    documentoRef?: string;
+    motivoSalida?: string;
+    motivoReintegro?: string;
+  }
+): {
+  success: boolean;
+  products: Producto[];
+  generatedMoves: StockMove[];
+  errorMessage?: string;
+} {
   const nextProducts: Producto[] = structuredClone(products);
+  const generatedMoves: StockMove[] = [];
 
   // 1. If old items were deducted, restore them first to get the available baseline
   if (oldDeducted) {
     for (const item of oldItems) {
       const prod = nextProducts.find((p) => p.id === item.productoId);
-      const variant = prod?.variantes.find((v) => v.id_variante === item.varianteId);
-      if (variant) {
+      const variant = prod?.variantes.find(
+        (v) => v.id_variante === item.varianteId
+      );
+      if (prod && variant) {
+        const prevDisp = variant.stock_disponible;
         variant.stock_disponible += item.cantidad;
+        variant.stock_fisico =
+          (variant.stock_fisico ?? prevDisp) + item.cantidad;
+
+        generatedMoves.push(
+          buildKardexMove({
+            varianteId: variant.id_variante,
+            sku: variant.sku || variant.id_variante,
+            productoNombre: prod.nombre,
+            talla: variant.talla,
+            color: variant.color,
+            orderId: kardexContext?.orderId,
+            documentoRef: kardexContext?.documentoRef || 'REINTEGRO',
+            tipoMovimiento: 'DEVOLUCION_NC',
+            cantidad: item.cantidad,
+            stockAnterior: prevDisp,
+            stockResultante: variant.stock_disponible,
+            motivo:
+              kardexContext?.motivoReintegro ||
+              `Reintegro de inventario (${kardexContext?.documentoRef || 'NC'})`,
+          })
+        );
       }
     }
   }
@@ -474,11 +648,14 @@ export function reconcileStockItems(
   if (newDeducted) {
     for (const item of newItems) {
       const prod = nextProducts.find((p) => p.id === item.productoId);
-      const variant = prod?.variantes.find((v) => v.id_variante === item.varianteId);
-      if (!variant) {
+      const variant = prod?.variantes.find(
+        (v) => v.id_variante === item.varianteId
+      );
+      if (!prod || !variant) {
         return {
           success: false,
           products,
+          generatedMoves: [],
           errorMessage: `La variante de ${item.nombre} (${item.talla}) ya no existe en el inventario.`,
         };
       }
@@ -486,14 +663,39 @@ export function reconcileStockItems(
         return {
           success: false,
           products,
+          generatedMoves: [],
           errorMessage: `Stock insuficiente para ${item.nombre} (Talla ${item.talla} · ${item.color}). Disponible: ${variant.stock_disponible} un.`,
         };
       }
-      variant.stock_disponible = Math.max(0, variant.stock_disponible - item.cantidad);
+      const prevDisp = variant.stock_disponible;
+      variant.stock_disponible = Math.max(0, prevDisp - item.cantidad);
+      variant.stock_fisico = Math.max(
+        variant.stock_disponible + (variant.stock_reservado || 0),
+        (variant.stock_fisico ?? prevDisp) - item.cantidad
+      );
+
+      generatedMoves.push(
+        buildKardexMove({
+          varianteId: variant.id_variante,
+          sku: variant.sku || variant.id_variante,
+          productoNombre: prod.nombre,
+          talla: variant.talla,
+          color: variant.color,
+          orderId: kardexContext?.orderId,
+          documentoRef: kardexContext?.documentoRef || 'POS-VENTA',
+          tipoMovimiento: 'SALIDA_VENTA',
+          cantidad: -item.cantidad,
+          stockAnterior: prevDisp,
+          stockResultante: variant.stock_disponible,
+          motivo:
+            kardexContext?.motivoSalida ||
+            `Salida por facturación (${kardexContext?.documentoRef || 'FAC'})`,
+        })
+      );
     }
   }
 
-  return { success: true, products: nextProducts };
+  return { success: true, products: nextProducts, generatedMoves };
 }
 
 /**
@@ -507,7 +709,9 @@ export function createOrderStatusNotification(
     ? `${order.orderNumber} (${order.invoiceNumber})`
     : order.orderNumber;
   const guiaInfo = order.guiaSeguimiento
-    ? ` · Guía: ${order.guiaSeguimiento}${order.transportadora ? ` (${order.transportadora})` : ''}`
+    ? ` · Guía: ${order.guiaSeguimiento}${
+        order.transportadora ? ` (${order.transportadora})` : ''
+      }`
     : '';
 
   const titulo =

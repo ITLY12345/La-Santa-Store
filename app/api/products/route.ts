@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readDbAsync, writeDbAsync } from '@/lib/server-db';
+import { readDbAsync, writeDbAsync, buildKardexMove } from '@/lib/server-db';
 import { Producto } from '@/lib/data';
 import { isAdminRequest, unauthorizedResponse } from '@/lib/auth';
 
@@ -102,19 +102,54 @@ export async function PUT(req: NextRequest) {
 
     if (body.action === 'updateStock') {
       const { productoId, varianteId, newStock } = body;
+      const targetStock = Math.max(0, Number(newStock) || 0);
+      const newMoves = [...(db.stockMoves || [])];
+
       db.products = db.products.map((prod) => {
         if (prod.id !== productoId) return prod;
         return {
           ...prod,
-          variantes: prod.variantes.map((v) =>
-            v.id_variante === varianteId
-              ? { ...v, stock_disponible: Math.max(0, Number(newStock) || 0) }
-              : v
-          ),
+          variantes: prod.variantes.map((v) => {
+            if (v.id_variante !== varianteId) return v;
+            const prevStock = v.stock_disponible;
+            const delta = targetStock - prevStock;
+            if (delta !== 0) {
+              newMoves.unshift(
+                buildKardexMove({
+                  varianteId: v.id_variante,
+                  sku: v.sku || v.id_variante,
+                  productoNombre: prod.nombre,
+                  talla: v.talla,
+                  color: v.color,
+                  documentoRef: 'INV-MANUAL',
+                  tipoMovimiento:
+                    delta > 0 ? 'ENTRADA_COMPRA' : 'AJUSTE_INVENTARIO',
+                  cantidad: delta,
+                  stockAnterior: prevStock,
+                  stockResultante: targetStock,
+                  motivo:
+                    delta > 0
+                      ? 'Reposición manual de inventario en consola POS'
+                      : 'Ajuste manual de existencias en consola POS',
+                })
+              );
+            }
+            const res = v.stock_reservado || 0;
+            return {
+              ...v,
+              stock_disponible: targetStock,
+              stock_fisico: targetStock + res,
+            };
+          }),
         };
       });
+      db.stockMoves = newMoves.slice(0, 500);
       const saved = await writeDbAsync(db);
-      return NextResponse.json({ success: true, products: saved.products });
+      return NextResponse.json({
+        success: true,
+        products: saved.products,
+        stockMoves: saved.stockMoves,
+      });
     }
 
     if (body.action === 'updateThreshold') {

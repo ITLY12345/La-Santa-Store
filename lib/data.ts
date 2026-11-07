@@ -4,7 +4,9 @@ export interface Variante {
   talla: string;
   color: string;
   diseno_motivo: string;
-  stock_disponible: number;
+  stock_fisico?: number; // Unidades físicas reales en bodega Cartagena (stock.quant on_hand)
+  stock_reservado?: number; // Unidades comprometidas en pedidos confirmados (stock.quant reserved)
+  stock_disponible: number; // Unidades libres para la venta (free_to_use = stock_fisico - stock_reservado)
 }
 
 export interface Producto {
@@ -20,6 +22,7 @@ export interface Producto {
   iva_porcentaje?: number; // Tarifa IVA (por defecto 19% Colombia)
   configuracion_alertas: {
     stock_minimo_alerta: number;
+    stock_maximo_objetivo?: number; // Regla de reabastecimiento (stock.warehouse.orderpoint)
   };
   variantes: Variante[];
 }
@@ -49,10 +52,36 @@ export type MetodoPagoInterno =
 
 export type EstadoPedido =
   | 'Pendiente'
+  | 'Confirmado'
   | 'Facturado'
   | 'Despachado'
   | 'Entregado'
   | 'Cancelado';
+
+export type TipoMovimientoKardex =
+  | 'ENTRADA_COMPRA'
+  | 'RESERVA_PEDIDO'
+  | 'LIBERACION_RESERVA'
+  | 'SALIDA_VENTA'
+  | 'DEVOLUCION_NC'
+  | 'AJUSTE_INVENTARIO';
+
+export interface StockMove {
+  id: string;
+  varianteId: string;
+  sku: string;
+  productoNombre: string;
+  talla: string;
+  color: string;
+  orderId?: string;
+  documentoRef: string;
+  tipoMovimiento: TipoMovimientoKardex;
+  cantidad: number; // Delta firmado (+n o -n)
+  stockAnterior: number;
+  stockResultante: number;
+  motivo: string;
+  fecha: string;
+}
 
 export interface Order {
   id: string;
@@ -83,6 +112,8 @@ export interface Order {
   total: number;
   estado: EstadoPedido;
   metodoPagoInterno: MetodoPagoInterno;
+  referenciaPago?: string; // Comprobante Nequi / Datáfono / Transferencia
+  stockReserved?: boolean; // Indica si las unidades están comprometidas en stock_reservado
   stockDeducted: boolean;
   notas?: string;
   referenceUrl: string;
@@ -129,6 +160,16 @@ export interface StoreConfig {
   deliveryNote: string;
   nextInvoiceSequence: number;
   nextCreditNoteSequence?: number;
+  // Parámetros ERP / DIAN (res.config.settings)
+  regimenTributario?: string;
+  resolucionFacturacion?: string;
+  prefijoFactura?: string;
+  rangoAutorizado?: string;
+  taxRatePercent?: number;
+  tarifaEnvioCartagena?: number;
+  tarifaEnvioNacional?: number;
+  envioGratisDesde?: number;
+  transportadorasActivas?: string;
 }
 
 export const DEFAULT_STORE_CONFIG: StoreConfig = {
@@ -144,6 +185,16 @@ export const DEFAULT_STORE_CONFIG: StoreConfig = {
   deliveryNote: '(Despacho desde Cartagena · A convenir)',
   nextInvoiceSequence: 1003,
   nextCreditNoteSequence: 1001,
+  regimenTributario: 'Responsable de IVA (19%)',
+  resolucionFacturacion: 'Resolución DIAN 18764000012345 · Vigencia 2026',
+  prefijoFactura: 'FAC',
+  rangoAutorizado: 'FAC-1000 a FAC-9999',
+  taxRatePercent: 19,
+  tarifaEnvioCartagena: 8000,
+  tarifaEnvioNacional: 16000,
+  envioGratisDesde: 200000,
+  transportadorasActivas:
+    'Coordinadora, Envía, Inter Rapidísimo, Domicilio Express Cartagena',
 };
 
 export const INITIAL_PLUGINS: PluginConnector[] = [
@@ -553,6 +604,8 @@ export const INITIAL_PRODUCTS: Producto[] = [
 export const INITIAL_ORDERS: Order[] = [];
 
 export const INITIAL_NOTIFICATIONS: StoreNotification[] = [];
+
+export const INITIAL_STOCK_MOVES: StockMove[] = [];
 
 export function formatCOP(amount: number): string {
   if (typeof amount !== 'number' || isNaN(amount)) return '$0';

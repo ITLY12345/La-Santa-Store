@@ -4,6 +4,7 @@ import {
   isAdminRequest,
   unauthorizedResponse,
   sanitizePublicStoreConfig,
+  verifyPinSafe,
 } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
@@ -18,6 +19,7 @@ export async function GET(req: NextRequest) {
       storeConfig: sanitizePublicStoreConfig(db.storeConfig),
       plugins: db.plugins,
       notifications: db.notifications,
+      stockMoves: db.stockMoves || [],
       updatedAt: db.updatedAt,
     });
   }
@@ -42,7 +44,10 @@ export async function PUT(req: NextRequest) {
       }
       db.notifications = db.notifications.map((n) => ({ ...n, leida: true }));
       const saved = await writeDbAsync(db);
-      return NextResponse.json({ success: true, notifications: saved.notifications });
+      return NextResponse.json({
+        success: true,
+        notifications: saved.notifications,
+      });
     }
 
     if (!isAdmin) {
@@ -66,10 +71,29 @@ export async function PUT(req: NextRequest) {
           ? body.storeConfig.adminPin.trim()
           : '';
 
+      if (incomingPin.length >= 4) {
+        const providedCurrentPin =
+          typeof body.currentPin === 'string' ? body.currentPin.trim() : '';
+        if (
+          providedCurrentPin &&
+          !verifyPinSafe(providedCurrentPin, db.storeConfig.adminPin)
+        ) {
+          return NextResponse.json(
+            {
+              success: false,
+              message:
+                'El PIN actual ingresado es incorrecto. No se modificó el PIN administrativo.',
+            },
+            { status: 403 }
+          );
+        }
+      }
+
       db.storeConfig = {
         ...db.storeConfig,
         ...body.storeConfig,
-        adminPin: incomingPin.length >= 4 ? incomingPin : db.storeConfig.adminPin,
+        adminPin:
+          incomingPin.length >= 4 ? incomingPin : db.storeConfig.adminPin,
       };
       const saved = await writeDbAsync(db);
       return NextResponse.json({

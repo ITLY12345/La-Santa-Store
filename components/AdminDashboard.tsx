@@ -51,6 +51,7 @@ export function AdminDashboard() {
     updateStoreConfig,
     plugins,
     updatePluginConnector,
+    stockMoves,
     triggerManualPushTest,
   } = useStore();
 
@@ -87,13 +88,37 @@ export function AdminDashboard() {
   const [prodModalError, setProdModalError] = useState<string | null>(null);
   const [productToDelete, setProductToDelete] = useState<Producto | null>(null);
 
-  // Settings form state
+  // Settings form state (Odoo res.config.settings)
   const [newStoreName, setNewStoreName] = useState(storeConfig.storeName);
   const [newStoreNit, setNewStoreNit] = useState(storeConfig.storeNit);
   const [newPhone, setNewPhone] = useState(storeConfig.storePhone);
   const [newAddress, setNewAddress] = useState(storeConfig.storeAddress);
   const [newTagline, setNewTagline] = useState(storeConfig.corporateTagline);
+  const [newRegimen, setNewRegimen] = useState(
+    storeConfig.regimenTributario || 'Responsable de IVA (19%)'
+  );
+  const [newResolucion, setNewResolucion] = useState(
+    storeConfig.resolucionFacturacion ||
+      'Resolución DIAN 18764000012345 · Vigencia 2026'
+  );
+  const [newPrefijo, setNewPrefijo] = useState(
+    storeConfig.prefijoFactura || 'FAC'
+  );
+  const [newRango, setNewRango] = useState(
+    storeConfig.rangoAutorizado || 'FAC-1000 a FAC-9999'
+  );
+  const [newTarifaCartagena, setNewTarifaCartagena] = useState<number>(
+    storeConfig.tarifaEnvioCartagena ?? 8000
+  );
+  const [newTarifaNacional, setNewTarifaNacional] = useState<number>(
+    storeConfig.tarifaEnvioNacional ?? 16000
+  );
+  const [newEnvioGratisDesde, setNewEnvioGratisDesde] = useState<number>(
+    storeConfig.envioGratisDesde ?? 200000
+  );
+  const [currentPinForChange, setCurrentPinForChange] = useState('');
   const [newPin, setNewPin] = useState('');
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
 
@@ -302,20 +327,125 @@ export function AdminDashboard() {
     0
   );
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateStoreConfig({
-      storeName: newStoreName.trim() || 'La Santa Store',
-      storeNit: newStoreNit.trim() || '901.482.319-4',
-      storePhone: newPhone.trim(),
-      storeAddress:
-        newAddress.trim() || 'Cartagena de Indias, Colombia · Despachos Nacionales',
-      corporateTagline: newTagline.trim(),
-      ...(newPin.trim().length >= 4 ? { adminPin: newPin.trim() } : {}),
-    });
+    setSettingsError(null);
+
+    if (newPin.trim().length > 0 && newPin.trim().length < 4) {
+      setSettingsError('El nuevo PIN debe tener al menos 4 dígitos.');
+      return;
+    }
+    if (newPin.trim().length >= 4 && !currentPinForChange.trim()) {
+      setSettingsError(
+        'Por seguridad, ingresa el PIN actual para poder establecer un nuevo PIN.'
+      );
+      return;
+    }
+
+    const res = await updateStoreConfig(
+      {
+        storeName: newStoreName.trim() || 'La Santa Store',
+        storeNit: newStoreNit.trim() || '901.482.319-4',
+        storePhone: newPhone.trim(),
+        storeAddress:
+          newAddress.trim() ||
+          'Cartagena de Indias, Colombia · Despachos Nacionales',
+        corporateTagline: newTagline.trim(),
+        regimenTributario: newRegimen.trim() || 'Responsable de IVA (19%)',
+        resolucionFacturacion: newResolucion.trim(),
+        prefijoFactura: newPrefijo.trim().toUpperCase() || 'FAC',
+        rangoAutorizado: newRango.trim(),
+        tarifaEnvioCartagena: Math.max(0, Number(newTarifaCartagena) || 0),
+        tarifaEnvioNacional: Math.max(0, Number(newTarifaNacional) || 0),
+        envioGratisDesde: Math.max(0, Number(newEnvioGratisDesde) || 0),
+        ...(newPin.trim().length >= 4 ? { adminPin: newPin.trim() } : {}),
+      },
+      currentPinForChange.trim() || undefined
+    );
+
+    if (!res.success) {
+      setSettingsError(res.message || 'No se pudo guardar la configuración.');
+      return;
+    }
+
+    setCurrentPinForChange('');
     setNewPin('');
     setSettingsSuccess(true);
     setTimeout(() => setSettingsSuccess(false), 3000);
+  };
+
+  const handleExportAccountingBackup = (format: 'json' | 'csv') => {
+    if (format === 'json') {
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        storeConfig,
+        orders,
+        products,
+        stockMoves,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `lasanta-erp-backup-${new Date()
+        .toISOString()
+        .slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Respaldo contable JSON exportado exitosamente.');
+      return;
+    }
+
+    // CSV export of invoices/orders ledger
+    const headers = [
+      'Orden',
+      'Factura',
+      'NotaCredito',
+      'Fecha',
+      'Origen',
+      'Estado',
+      'Cliente',
+      'Documento',
+      'Subtotal',
+      'BaseGravable',
+      'IVA19',
+      'Envio',
+      'Descuento',
+      'Total',
+      'MetodoPago',
+    ];
+    const rows = orders.map((o) =>
+      [
+        o.orderNumber,
+        o.invoiceNumber || '',
+        o.creditNoteNumber || '',
+        o.fecha,
+        o.origen,
+        o.estado,
+        `"${(o.clienteNombre || '').replace(/"/g, '""')}"`,
+        o.clienteDocumento || '',
+        o.subtotal,
+        o.baseGravable ?? Math.round(o.subtotal / 1.19),
+        o.impuestoIva ?? o.subtotal - Math.round(o.subtotal / 1.19),
+        o.costoEnvio,
+        o.descuentoManual || 0,
+        o.total,
+        o.metodoPagoInterno,
+      ].join(',')
+    );
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lasanta-libro-facturas-${new Date()
+      .toISOString()
+      .slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Libro contable de facturas exportado en CSV.');
   };
 
   return (
@@ -709,7 +839,9 @@ export function AdminDashboard() {
                               <th className="py-2 px-2">Color</th>
                               <th className="py-2 px-2">Talla</th>
                               <th className="py-2 px-2">Edición</th>
-                              <th className="py-2 px-2 text-center">Disponible</th>
+                              <th className="py-2 px-2 text-center">Físico (On Hand)</th>
+                              <th className="py-2 px-2 text-center">Reservado</th>
+                              <th className="py-2 px-2 text-center">Disponible Venta</th>
                               <th className="py-2 px-3 text-right">Ajuste Rápido POS</th>
                             </tr>
                           </thead>
@@ -717,6 +849,8 @@ export function AdminDashboard() {
                             {prod.variantes.map((v) => {
                               const isCritical = v.stock_disponible <= minThresh;
                               const isOutOfStock = v.stock_disponible === 0;
+                              const reserved = v.stock_reservado || 0;
+                              const fisico = v.stock_fisico ?? v.stock_disponible + reserved;
 
                               return (
                                 <tr key={v.id_variante}>
@@ -731,6 +865,12 @@ export function AdminDashboard() {
                                   </td>
                                   <td className="py-2.5 px-2 text-zinc-500 text-[11px]">
                                     {v.diseno_motivo}
+                                  </td>
+                                  <td className="py-2.5 px-2 text-center font-mono text-zinc-600 tabular-nums">
+                                    {fisico} un.
+                                  </td>
+                                  <td className="py-2.5 px-2 text-center font-mono text-zinc-400 tabular-nums">
+                                    {reserved} un.
                                   </td>
                                   <td className="py-2.5 px-2 text-center">
                                     <span
@@ -1007,6 +1147,154 @@ export function AdminDashboard() {
                   })}
                 </div>
               </div>
+
+              {/* Reglas de Reabastecimiento Automático (Odoo stock.warehouse.orderpoint) */}
+              {criticalAlerts.length > 0 && (
+                <div className="bg-[#F5F5F7] rounded-3xl p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-[#111111] uppercase tracking-wider">
+                        Reglas de Reabastecimiento Automático (stock.warehouse.orderpoint)
+                      </h4>
+                      <p className="text-[11px] text-zinc-500">
+                        Sugerencias automáticas de reposición para alcanzar el stock objetivo de seguridad (15 un.) en bodega Cartagena.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
+                    {criticalAlerts.map((al) => {
+                      const targetMax =
+                        al.producto.configuracion_alertas?.stock_maximo_objetivo || 15;
+                      const suggestedOrderQty = Math.max(
+                        1,
+                        targetMax - al.variante.stock_disponible
+                      );
+                      return (
+                        <div
+                          key={`${al.producto.id}-${al.variante.id_variante}`}
+                          className="p-3.5 rounded-2xl bg-white flex items-center justify-between gap-3 border border-zinc-200/70"
+                        >
+                          <div>
+                            <p className="font-bold text-[#111111]">
+                              {al.producto.nombre} ({al.variante.talla} · {al.variante.color})
+                            </p>
+                            <p className="text-[11px] text-zinc-500 font-mono">
+                              SKU: {al.variante.sku || al.variante.id_variante} · Actual:{' '}
+                              <strong className="text-amber-600">
+                                {al.variante.stock_disponible} un.
+                              </strong>{' '}
+                              / Meta: {targetMax} un.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateVariantStock(
+                                al.producto.id,
+                                al.variante.id_variante,
+                                targetMax
+                              );
+                              showToast(
+                                `Reabastecido +${suggestedOrderQty} un. de ${al.producto.nombre} (${al.variante.talla}) en Kardex.`
+                              );
+                            }}
+                            className="px-3.5 py-2 rounded-full bg-[#111111] text-white font-bold text-[11px] hover:bg-zinc-800 transition shrink-0"
+                          >
+                            Reabastecer +{suggestedOrderQty} un.
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Kardex Inmutable de Movimientos de Almacén (Odoo stock.move / erp_stock_moves) */}
+              <div className="bg-[#F5F5F7] rounded-3xl p-5 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-bold text-[#111111] uppercase tracking-wider">
+                      Kardex Inmutable de Movimientos de Almacén (erp_stock_moves)
+                    </h4>
+                    <p className="text-[11px] text-zinc-500">
+                      Trazabilidad histórica de salidas por venta POS, devoluciones por Nota Crédito y reposiciones de bodega.
+                    </p>
+                  </div>
+                  <span className="px-3 py-1 rounded-full bg-white text-[11px] font-mono font-bold text-[#111111]">
+                    {stockMoves.length} movimientos registrados
+                  </span>
+                </div>
+
+                {stockMoves.length === 0 ? (
+                  <div className="bg-white rounded-2xl p-6 text-center text-xs text-zinc-500">
+                    Aún no hay movimientos registrados en esta sesión. Cualquier factura emitida, Nota Crédito o ajuste de inventario quedará auditado aquí automáticamente.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto bg-white rounded-2xl p-2">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-zinc-100 text-[10px] text-zinc-400 uppercase">
+                          <th className="py-2 px-3">Fecha</th>
+                          <th className="py-2 px-2">Documento</th>
+                          <th className="py-2 px-2">Tipo</th>
+                          <th className="py-2 px-2">SKU / Variante</th>
+                          <th className="py-2 px-2 text-center">Anterior</th>
+                          <th className="py-2 px-2 text-center">Delta</th>
+                          <th className="py-2 px-2 text-center">Resultante</th>
+                          <th className="py-2 px-3">Motivo</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100">
+                        {stockMoves.slice(0, 50).map((mv) => (
+                          <tr key={mv.id}>
+                            <td className="py-2 px-3 font-mono text-[11px] text-zinc-500 whitespace-nowrap">
+                              {mv.fecha}
+                            </td>
+                            <td className="py-2 px-2 font-mono font-bold text-[#111111]">
+                              {mv.documentoRef}
+                            </td>
+                            <td className="py-2 px-2">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  mv.cantidad > 0
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : 'bg-zinc-100 text-[#111111]'
+                                }`}
+                              >
+                                {mv.tipoMovimiento}
+                              </span>
+                            </td>
+                            <td className="py-2 px-2">
+                              <span className="font-bold text-[#111111]">
+                                {mv.productoNombre}
+                              </span>{' '}
+                              <span className="text-zinc-500 text-[11px]">
+                                ({mv.talla} · {mv.color})
+                              </span>
+                            </td>
+                            <td className="py-2 px-2 text-center font-mono text-zinc-500">
+                              {mv.stockAnterior}
+                            </td>
+                            <td
+                              className={`py-2 px-2 text-center font-mono font-bold ${
+                                mv.cantidad > 0 ? 'text-emerald-600' : 'text-rose-600'
+                              }`}
+                            >
+                              {mv.cantidad > 0 ? `+${mv.cantidad}` : mv.cantidad}
+                            </td>
+                            <td className="py-2 px-2 text-center font-mono font-bold text-[#111111]">
+                              {mv.stockResultante}
+                            </td>
+                            <td className="py-2 px-3 text-[11px] text-zinc-500">
+                              {mv.motivo}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -1091,28 +1379,146 @@ export function AdminDashboard() {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-zinc-200">
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600 block mb-1">
+                      Régimen Tributario (DIAN)
+                    </label>
+                    <input
+                      type="text"
+                      value={newRegimen}
+                      onChange={(e) => setNewRegimen(e.target.value)}
+                      className="w-full bg-white rounded-2xl px-3.5 py-2 text-xs text-[#111111]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600 block mb-1">
+                      Prefijo &amp; Rango Autorizado
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newPrefijo}
+                        onChange={(e) => setNewPrefijo(e.target.value)}
+                        placeholder="FAC"
+                        className="w-20 bg-white rounded-2xl px-3 py-2 text-xs font-mono font-bold text-[#111111]"
+                      />
+                      <input
+                        type="text"
+                        value={newRango}
+                        onChange={(e) => setNewRango(e.target.value)}
+                        placeholder="FAC-1000 a FAC-9999"
+                        className="flex-1 bg-white rounded-2xl px-3 py-2 text-xs font-mono text-[#111111]"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <div>
                   <label className="text-xs font-semibold text-zinc-600 block mb-1">
-                    Cambiar PIN de Seguridad Administrativo
+                    Resolución de Facturación / Texto Legal en Factura
                   </label>
-                  <div className="relative">
-                    <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                  <input
+                    type="text"
+                    value={newResolucion}
+                    onChange={(e) => setNewResolucion(e.target.value)}
+                    className="w-full bg-white rounded-2xl px-3.5 py-2 text-xs text-[#111111]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-2.5 pt-2 border-t border-zinc-200">
+                  <div>
+                    <label className="text-[11px] font-semibold text-zinc-600 block mb-1">
+                      Envío Cartagena ($)
+                    </label>
                     <input
-                      type="password"
-                      value={newPin}
-                      onChange={(e) => setNewPin(e.target.value)}
-                      placeholder="••••"
-                      className="w-full bg-white rounded-2xl pl-9 pr-3.5 py-2.5 text-xs text-[#111111] focus:outline-none focus:ring-1 focus:ring-[#111111]"
+                      type="number"
+                      min={0}
+                      step={1000}
+                      value={newTarifaCartagena}
+                      onChange={(e) =>
+                        setNewTarifaCartagena(Math.max(0, Number(e.target.value)))
+                      }
+                      className="w-full bg-white rounded-2xl px-3 py-2 text-xs font-mono text-[#111111]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-zinc-600 block mb-1">
+                      Envío Nacional ($)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1000}
+                      value={newTarifaNacional}
+                      onChange={(e) =>
+                        setNewTarifaNacional(Math.max(0, Number(e.target.value)))
+                      }
+                      className="w-full bg-white rounded-2xl px-3 py-2 text-xs font-mono text-[#111111]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-zinc-600 block mb-1">
+                      Gratis Desde ($)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={10000}
+                      value={newEnvioGratisDesde}
+                      onChange={(e) =>
+                        setNewEnvioGratisDesde(Math.max(0, Number(e.target.value)))
+                      }
+                      className="w-full bg-white rounded-2xl px-3 py-2 text-xs font-mono text-[#111111]"
                     />
                   </div>
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-zinc-200">
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600 block mb-1">
+                      PIN Actual (Requerido para cambiar PIN)
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                      <input
+                        type="password"
+                        value={currentPinForChange}
+                        onChange={(e) => setCurrentPinForChange(e.target.value)}
+                        placeholder="PIN actual"
+                        className="w-full bg-white rounded-2xl pl-9 pr-3.5 py-2.5 text-xs text-[#111111] focus:outline-none focus:ring-1 focus:ring-[#111111]"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600 block mb-1">
+                      Nuevo PIN Administrativo
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                      <input
+                        type="password"
+                        value={newPin}
+                        onChange={(e) => setNewPin(e.target.value)}
+                        placeholder="Nuevo PIN (4+ dígitos)"
+                        className="w-full bg-white rounded-2xl pl-9 pr-3.5 py-2.5 text-xs text-[#111111] focus:outline-none focus:ring-1 focus:ring-[#111111]"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {settingsError && (
+                  <p className="text-xs font-bold text-rose-600 bg-rose-50 px-3.5 py-2 rounded-xl">
+                    {settingsError}
+                  </p>
+                )}
 
                 <div className="flex items-center gap-3 pt-1">
                   <button
                     type="submit"
                     className="py-3 px-6 bg-[#111111] text-white font-bold text-xs rounded-full hover:bg-zinc-800 transition"
                   >
-                    Guardar Parámetros
+                    Guardar Parámetros ERP
                   </button>
                   {settingsSuccess && (
                     <span className="text-xs text-[#111111] font-semibold">
@@ -1122,7 +1528,35 @@ export function AdminDashboard() {
                 </div>
               </form>
 
-              <div className="bg-[#F5F5F7] rounded-3xl p-5 flex flex-col justify-between space-y-4">
+              <div className="space-y-6">
+                <div className="bg-[#F5F5F7] rounded-3xl p-5 space-y-4">
+                  <div>
+                    <h4 className="text-sm font-extrabold text-[#111111]">
+                      Auditoría y Copias de Seguridad Contables (JSON / CSV)
+                    </h4>
+                    <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                      Exporta en cualquier momento el libro mayor de facturas emitidas, Notas Crédito, catálogo con costos COGS y el Kardex de movimientos de almacén.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => handleExportAccountingBackup('csv')}
+                      className="px-4 py-2.5 rounded-full bg-[#111111] text-white text-xs font-bold hover:bg-zinc-800 transition"
+                    >
+                      Exportar Libro de Facturas (.CSV)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportAccountingBackup('json')}
+                      className="px-4 py-2.5 rounded-full bg-white border border-zinc-200 text-[#111111] text-xs font-bold hover:bg-zinc-100 transition"
+                    >
+                      Backup Completo ERP + Kardex (.JSON)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-[#F5F5F7] rounded-3xl p-5 flex flex-col justify-between space-y-4">
                 <div>
                   <h4 className="text-sm font-extrabold text-[#111111]">
                     Restauración de Catálogo Base
@@ -1152,6 +1586,7 @@ export function AdminDashboard() {
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Restablecer Base de Datos</span>
                   </button>
+                </div>
                 </div>
               </div>
             </div>
