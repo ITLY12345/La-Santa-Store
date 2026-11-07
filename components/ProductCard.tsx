@@ -1,10 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Image from 'next/image';
 import { Producto, formatCOP } from '@/lib/data';
 import { useStore } from '@/lib/store';
-import { Heart, Plus } from 'lucide-react';
+import { Heart, Plus, Check } from 'lucide-react';
 
 interface ProductCardProps {
   producto: Producto;
@@ -12,113 +12,174 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ producto, onSelect }: ProductCardProps) {
-  const { favorites, toggleFavorite } = useStore();
+  const { favorites, toggleFavorite, addToCart } = useStore();
+  const [justAdded, setJustAdded] = useState(false);
+
   const isFavorite = favorites.includes(producto.id);
 
-  const totalStock = producto.variantes.reduce((sum, v) => sum + v.stock_disponible, 0);
-  const isOutOfStock = totalStock <= 0;
-  const isCriticalStock =
-    !isOutOfStock && totalStock <= (producto.configuracion_alertas?.stock_minimo_alerta ?? 3);
+  const totalStock = producto.variantes.reduce(
+    (acc, v) => acc + v.stock_disponible,
+    0
+  );
+  const isOutOfStock = totalStock === 0;
 
-  const uniqueSizes = Array.from(new Set(producto.variantes.map((v) => v.talla)));
-  const primaryImg =
-    producto.imagenes[0] ||
-    'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85';
-  const isCustomOrDataImg =
-    primaryImg.startsWith('data:') ||
-    (!primaryImg.includes('images.unsplash.com') && !primaryImg.includes('picsum.photos'));
+  const availableSizes = Array.from(
+    new Set(
+      producto.variantes
+        .filter((v) => v.stock_disponible > 0)
+        .map((v) => v.talla)
+    )
+  );
+
+  const handleQuickAdd = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const firstAvailableVariant = producto.variantes.find(
+      (v) => v.stock_disponible > 0
+    );
+    if (!firstAvailableVariant) {
+      onSelect(producto);
+      return;
+    }
+
+    const res = addToCart({
+      productoId: producto.id,
+      varianteId: firstAvailableVariant.id_variante,
+      nombre: producto.nombre,
+      categoria: producto.categoria,
+      marca_motivo: producto.marca_motivo,
+      talla: firstAvailableVariant.talla,
+      color: firstAvailableVariant.color,
+      diseno_motivo: firstAvailableVariant.diseno_motivo,
+      precio: producto.precio_base,
+      cantidad: 1,
+      stockMaximo: firstAvailableVariant.stock_disponible,
+      imagen: producto.imagenes[0] || '',
+    });
+
+    if (res.success) {
+      setJustAdded(true);
+      setTimeout(() => setJustAdded(false), 1400);
+    } else {
+      onSelect(producto);
+    }
+  };
 
   return (
-    <article
+    <div
       onClick={() => onSelect(producto)}
-      className="group relative bg-white rounded-[28px] flex flex-col justify-between cursor-pointer transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98]"
+      className="group cursor-pointer flex flex-col transition-all duration-300"
     >
-      {/* Top Media Container (#F5F5F7 Soft Gray Rounded Frame 1:1 Dribbble #27573251) */}
-      <div className="relative aspect-[4/5] w-full rounded-[24px] bg-[#F5F5F7] overflow-hidden">
-        {isCustomOrDataImg ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={primaryImg}
-            alt={producto.nombre}
-            referrerPolicy="no-referrer"
-            className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 ${
-              isOutOfStock ? 'opacity-40 grayscale' : ''
-            }`}
-          />
-        ) : (
-          <Image
-            src={primaryImg}
-            alt={producto.nombre}
-            fill
-            className={`object-cover transition-transform duration-500 group-hover:scale-105 ${
-              isOutOfStock ? 'opacity-40 grayscale' : ''
-            }`}
-            sizes="(max-width: 768px) 50vw, 33vw"
-            referrerPolicy="no-referrer"
-          />
-        )}
+      {/* Image Container - Rounded 28px like Dribbble #27573251 */}
+      <div className="relative aspect-[4/5] w-full overflow-hidden rounded-[28px] bg-[#F5F5F7]">
+        <Image
+          src={producto.imagenes[0]}
+          alt={producto.nombre}
+          fill
+          sizes="(max-width: 768px) 50vw, 33vw"
+          className={`object-cover transition-transform duration-500 group-hover:scale-105 ${
+            isOutOfStock ? 'grayscale opacity-50' : ''
+          }`}
+          referrerPolicy="no-referrer"
+        />
 
-        {/* Top-Left Subtle Stock Text */}
-        <div className="absolute top-3 left-3.5 z-10">
-          {isOutOfStock ? (
-            <span className="text-[11px] font-bold text-red-600 bg-white/90 px-2.5 py-1 rounded-full backdrop-blur-xs">
-              Agotado
-            </span>
-          ) : isCriticalStock ? (
-            <span className="text-[11px] font-semibold text-[#111111] bg-white/90 px-2.5 py-1 rounded-full backdrop-blur-xs">
-              Últimas {totalStock}
-            </span>
-          ) : null}
-        </div>
-
-        {/* Top-Right Circular White Wishlist Heart Button (1:1 Dribbble #27573251) */}
+        {/* Top-Right Heart Favorite Button (1:1 Dribbble #27573251) */}
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             toggleFavorite(producto.id);
           }}
-          aria-label="Guardar en favoritos"
-          className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full bg-white/95 hover:bg-white text-[#111111] shadow-xs flex items-center justify-center transition-transform active:scale-90"
+          aria-label={isFavorite ? 'Quitar de favoritos' : 'Añadir a favoritos'}
+          className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center shadow-sm transition active:scale-90 hover:bg-white z-10"
         >
           <Heart
-            className={`w-4 h-4 ${
-              isFavorite ? 'fill-[#111111] text-[#111111]' : 'text-[#111111]'
+            className={`w-4 h-4 transition-colors ${
+              isFavorite
+                ? 'fill-rose-500 text-rose-500'
+                : 'text-[#111111]'
             }`}
           />
         </button>
+
+        {/* Bottom-Left Subtle Category & Stock Badge */}
+        <div className="absolute bottom-3 left-3 flex flex-wrap gap-1.5">
+          {isOutOfStock ? (
+            <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-[#111111] text-white rounded-full">
+              Agotado
+            </span>
+          ) : totalStock <=
+            (producto.configuracion_alertas?.stock_minimo_alerta || 5) ? (
+            <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-white/95 text-[#111111] rounded-full shadow-sm">
+              Últimas {totalStock}
+            </span>
+          ) : null}
+        </div>
       </div>
 
-      {/* Bottom Details & Price Row */}
-      <div className="pt-3 px-1 pb-1 flex flex-col justify-between flex-grow gap-1.5">
-        <div>
-          <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
-            <span className="font-medium">{producto.categoria}</span>
-            <span aria-hidden="true">·</span>
-            <span className="truncate">Tallas {uniqueSizes.slice(0, 3).join('/')}</span>
-          </div>
-
-          <h3 className="text-sm font-bold text-[#111111] line-clamp-1 mt-0.5">
-            {producto.nombre}
-          </h3>
+      {/* Product Details Below Card (1:1 Dribbble #27573251) */}
+      <div className="pt-3 px-1 flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-1.5">
+          <span className="text-[11px] font-medium text-zinc-500 truncate">
+            {producto.categoria} · {producto.marca_motivo}
+          </span>
+          {!isOutOfStock && availableSizes.length > 0 && (
+            <div className="flex items-center gap-1 shrink-0">
+              {availableSizes.slice(0, 3).map((sz) => (
+                <span
+                  key={sz}
+                  className="px-1.5 py-0.5 rounded-md bg-[#F5F5F7] text-[9px] font-bold text-zinc-600"
+                >
+                  {sz}
+                </span>
+              ))}
+              {availableSizes.length > 3 && (
+                <span className="text-[9px] font-bold text-zinc-400">
+                  +{availableSizes.length - 3}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
+        <h3 className="text-sm font-semibold text-[#111111] leading-snug line-clamp-1">
+          {producto.nombre}
+        </h3>
+
         <div className="flex items-center justify-between pt-1">
-          <span className="text-sm sm:text-base font-extrabold text-[#111111] tabular-nums tracking-tight">
+          <span className="text-sm font-bold text-[#111111]">
             {formatCOP(producto.precio_base)}
           </span>
 
-          <div
-            className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+          <button
+            type="button"
+            onClick={handleQuickAdd}
+            disabled={isOutOfStock}
+            aria-label={
               isOutOfStock
-                ? 'bg-zinc-200 text-zinc-400'
-                : 'bg-[#111111] text-white group-hover:scale-105'
+                ? 'Producto agotado'
+                : `Agregar ${producto.nombre} a la bolsa`
+            }
+            title={
+              isOutOfStock
+                ? 'Agotado'
+                : `Agregar rápido (${availableSizes[0] || 'Talla única'})`
+            }
+            className={`w-8 h-8 rounded-full flex items-center justify-center transition active:scale-90 ${
+              isOutOfStock
+                ? 'bg-zinc-100 text-zinc-300 cursor-not-allowed'
+                : justAdded
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-[#F5F5F7] text-[#111111] hover:bg-[#111111] hover:text-white group-hover:bg-[#111111] group-hover:text-white'
             }`}
           >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-          </div>
+            {justAdded ? (
+              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+            ) : (
+              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+            )}
+          </button>
         </div>
       </div>
-    </article>
+    </div>
   );
 }

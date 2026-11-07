@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import Link from 'next/link';
 import Image from 'next/image';
 import { useStore } from '@/lib/store';
 import { Producto, formatCOP } from '@/lib/data';
@@ -12,6 +11,10 @@ import { CartDrawer } from '@/components/CartDrawer';
 import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 import { StoreFooter, CookieConsentBanner } from '@/components/FooterAndCookies';
 import {
+  OrderTrackerModal,
+  PushNotificationToast,
+} from '@/components/OrderTrackerModal';
+import {
   ShoppingBag,
   SlidersHorizontal,
   Search,
@@ -19,11 +22,12 @@ import {
   WifiOff,
   Home as HomeIcon,
   Heart,
-  ShieldCheck,
+  PackageCheck,
   MessageCircle,
   Sparkles,
   Check,
   ArrowUpDown,
+  ArrowRight,
 } from 'lucide-react';
 
 export default function Home() {
@@ -33,7 +37,7 @@ export default function Home() {
     cartTotalCount,
     cartSubtotal,
     storeConfig,
-    criticalAlerts,
+    unreadNotificationsCount,
     isHydrated,
   } = useStore();
 
@@ -59,6 +63,7 @@ export default function Home() {
   // Modals
   const [selectedProduct, setSelectedProduct] = useState<Producto | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isTrackerOpen, setIsTrackerOpen] = useState(false);
 
   const [mounted, setMounted] = useState(false);
 
@@ -200,6 +205,9 @@ export default function Home() {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
+  // Featured product for the editorial Hero card
+  const featuredHeroProduct = products[0];
+
   return (
     <div className="min-h-screen bg-white text-[#111111] flex flex-col selection:bg-[#111111] selection:text-white">
       {/* Offline Toast */}
@@ -210,9 +218,13 @@ export default function Home() {
         </div>
       )}
 
+      {/* In-App Real-Time Push Notification Toast */}
+      <PushNotificationToast onOpenTracker={() => setIsTrackerOpen(true)} />
+
       {/* Minimalist App Profile Header (1:1 Dribbble #27573251 - With La Santa Store) */}
       <Header
         onOpenCart={() => setIsCartOpen(true)}
+        onOpenTracker={() => setIsTrackerOpen(true)}
         activeNavTab={activeNavTab}
         setActiveNavTab={setActiveNavTab}
       />
@@ -255,183 +267,238 @@ export default function Home() {
           >
             <SlidersHorizontal className="w-4 h-4" />
             {activeFilterCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-white text-[#111111] border border-[#111111] text-[10px] font-black flex items-center justify-center tabular-nums">
+              <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center border-2 border-white">
                 {activeFilterCount}
               </span>
             )}
           </button>
         </section>
 
-        {/* Promotional Season Banner with Colorful High-Impact Background Image that Pops Amongst Minimalism */}
+        {/* Clean Editorial Minimal Streetwear Hero Card (1:1 Dribbble #27573251) */}
         {activeNavTab === 'home' && !searchQuery && (
-          <section className="relative rounded-[32px] overflow-hidden p-6 sm:p-9 shadow-lg">
-            {/* Colorful Vibrant Background Image */}
-            <div className="absolute inset-0 z-0">
-              <Image
-                src="https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=1600&q=85"
-                alt="Fondo Colorido Temporada La Santa"
-                fill
-                priority
-                className="object-cover object-center scale-105"
-                referrerPolicy="no-referrer"
-              />
-              {/* Refined gradient overlay for text legibility while retaining vibrant colorful pops */}
-              <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/70 to-black/35 backdrop-blur-[1px]" />
+          <section className="relative overflow-hidden rounded-[28px] bg-[#F5F5F7] p-6 sm:p-8 flex items-center justify-between gap-6 border border-zinc-200/70">
+            <div className="relative z-10 max-w-md space-y-3">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#111111] text-[11px] font-bold tracking-wide shadow-2xs">
+                <Sparkles className="w-3 h-3 text-[#111111]" />
+                <span>{storeConfig.storeCity || 'Cartagena de Indias'} · Drop 2026</span>
+              </span>
+
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#111111] leading-[1.15]">
+                Streetwear Contemporáneo &amp; Esenciales de Costa.
+              </h1>
+
+              <p className="text-xs text-zinc-500 font-medium leading-relaxed line-clamp-2">
+                Camisetas Heavyweight, Bolsos Tote y Chanclas Slides con stock en tiempo real y despacho inmediato desde Cartagena.
+              </p>
+
+              <div className="pt-1 flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (featuredHeroProduct) {
+                      setSelectedProduct(featuredHeroProduct);
+                    } else {
+                      setShowOnboardingScreen(true);
+                    }
+                  }}
+                  className="px-5 py-2.5 rounded-full bg-[#111111] text-white text-xs font-bold hover:bg-zinc-800 transition active:scale-95 inline-flex items-center gap-1.5 shadow-xs"
+                >
+                  <span>Explorar Drop</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenWhatsAppDirect()}
+                  className="px-4 py-2.5 rounded-full bg-white text-[#111111] text-xs font-semibold hover:bg-zinc-100 border border-zinc-200/80 transition active:scale-95 inline-flex items-center gap-1.5"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>Asesoría WhatsApp</span>
+                </button>
+              </div>
             </div>
 
-            <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-6">
-              <div className="space-y-3 text-left max-w-lg">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-[11px] font-black text-white border border-white/30 tracking-wide uppercase">
-                  <Sparkles className="w-3 h-3 text-amber-300" />
-                  <span>Temporada 2026 · Cartagena de Indias</span>
-                </span>
-                <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight leading-tight drop-shadow-sm">
-                  Edición Especial & Colores Vibrantes
-                </h1>
-                <p className="text-xs sm:text-sm text-zinc-200 leading-relaxed drop-shadow-xs max-w-md">
-                  {storeConfig.corporateTagline}
-                </p>
-                <div className="pt-2 flex flex-wrap items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleOpenWhatsAppDirect(
-                        `Hola ${storeConfig.storeName}, quiero aprovechar la Promoción de Temporada 2026 desde ${storeConfig.storeCity}. ¿Me brindas información de prendas disponibles?`
-                      )
-                    }
-                    className="px-5 py-3 rounded-full bg-white text-[#111111] font-black text-xs flex items-center gap-2 hover:bg-zinc-100 transition active:scale-95 shadow-md"
-                  >
-                    <MessageCircle className="w-4 h-4 text-emerald-600" />
-                    <span>Pedir por WhatsApp</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowOnboardingScreen(true)}
-                    className="px-4 py-3 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-md text-xs font-bold text-white border border-white/30 transition active:scale-95"
-                  >
-                    Ver Destacados
-                  </button>
-                </div>
-              </div>
-
-              <div className="relative w-full sm:w-48 h-48 sm:h-48 rounded-[24px] overflow-hidden bg-white/10 border-2 border-white/40 shadow-xl shrink-0">
+            {/* Clean Cutout / Editorial Product Preview */}
+            <div
+              onClick={() => {
+                if (featuredHeroProduct) setSelectedProduct(featuredHeroProduct);
+              }}
+              className="hidden sm:flex items-center gap-3 bg-white p-3 rounded-[24px] shadow-sm border border-zinc-100 cursor-pointer group shrink-0 hover:shadow-md transition"
+            >
+              <div className="relative w-24 h-28 rounded-2xl overflow-hidden bg-[#F5F5F7] shrink-0">
                 <Image
-                  src="https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=900&q=85"
-                  alt="Colección La Santa Store"
+                  src={
+                    featuredHeroProduct?.imagenes[0] ||
+                    'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=800&q=80'
+                  }
+                  alt={featuredHeroProduct?.nombre || 'Colección Destacada'}
                   fill
-                  className="object-cover"
-                  priority
+                  sizes="96px"
+                  className="object-cover group-hover:scale-105 transition-transform duration-500"
                   referrerPolicy="no-referrer"
                 />
+              </div>
+              <div className="pr-2 space-y-1 max-w-[140px]">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
+                  Destacado
+                </span>
+                <p className="text-xs font-bold text-[#111111] line-clamp-2 leading-snug">
+                  {featuredHeroProduct?.nombre || 'Camiseta Oversize Heavyweight'}
+                </p>
+                <p className="text-xs font-extrabold text-[#111111] pt-0.5">
+                  {formatCOP(featuredHeroProduct?.precio_base || 95000)}
+                </p>
               </div>
             </div>
           </section>
         )}
 
-        {/* Horizontal Pill Category Selector (100% Spanish) */}
+        {/* Horizontal Category Pills (1:1 Dribbble #27573251) */}
         <section className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none text-xs">
-              {(['Todos', 'Camisetas', 'Bolsos', 'Chanclas'] as const).map((cat) => {
-                const isSelected = activeNavTab === 'home' && selectedCategory === cat;
-                const countInCat =
-                  cat === 'Todos'
-                    ? products.length
-                    : products.filter((p) => p.categoria === cat).length;
-
-                return (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => {
-                      setActiveNavTab('home');
-                      setSelectedCategory(cat);
-                      setSelectedSizeFilter('Todas');
-                      setSelectedColorFilter('Todos');
-                    }}
-                    className={`px-5 py-2.5 rounded-full font-semibold whitespace-nowrap transition-all active:scale-95 ${
-                      isSelected
-                        ? 'bg-[#111111] text-white'
-                        : 'bg-[#F5F5F7] text-zinc-600 hover:text-[#111111]'
-                    }`}
-                  >
-                    {cat} ({countInCat})
-                  </button>
-                );
-              })}
-
-              <button
-                type="button"
-                onClick={() =>
-                  setActiveNavTab(activeNavTab === 'favorites' ? 'home' : 'favorites')
-                }
-                className={`px-5 py-2.5 rounded-full font-semibold whitespace-nowrap flex items-center gap-1.5 transition-all active:scale-95 ${
-                  activeNavTab === 'favorites'
-                    ? 'bg-[#111111] text-white'
-                    : 'bg-[#F5F5F7] text-zinc-600 hover:text-[#111111]'
-                }`}
-              >
-                <Heart
-                  className={`w-3.5 h-3.5 ${
-                    activeNavTab === 'favorites' ? 'fill-white text-white' : ''
-                  }`}
-                />
-                <span>Favoritos ({isHydrated ? favorites.length : 0})</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Active Filters Summary Line */}
-          {hasActiveFilters && (
-            <div className="flex items-center gap-2 flex-wrap text-xs text-zinc-500">
-              <span>Mostrando {filteredProducts.length} artículos</span>
-              {selectedCategory !== 'Todos' && <span>· Categoría: {selectedCategory}</span>}
-              {selectedSizeFilter !== 'Todas' && <span>· Talla: {selectedSizeFilter}</span>}
-              {selectedColorFilter !== 'Todos' && <span>· Color: {selectedColorFilter}</span>}
-              {onlyInStock && <span>· Solo disponibles</span>}
-              {sortByPrice === 'precio_asc' && <span>· Menor a mayor precio</span>}
-              {sortByPrice === 'precio_desc' && <span>· Mayor a menor precio</span>}
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold text-[#111111]">
+              {activeNavTab === 'favorites' ? 'Mis Favoritos' : 'Categorías'}
+            </h2>
+            {hasActiveFilters && (
               <button
                 type="button"
                 onClick={clearFilters}
-                className="text-[#111111] underline font-semibold ml-1"
+                className="text-xs font-semibold text-zinc-500 hover:text-[#111111] transition"
               >
-                Restablecer filtros
+                Ver todo
               </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+            {(
+              [
+                { id: 'Todos', label: 'Todo' },
+                { id: 'Camisetas', label: 'Camisetas' },
+                { id: 'Bolsos', label: 'Bolsos' },
+                { id: 'Chanclas', label: 'Chanclas' },
+              ] as const
+            ).map((cat) => {
+              const isSelected = selectedCategory === cat.id && activeNavTab === 'home';
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveNavTab('home');
+                    setSelectedCategory(cat.id);
+                    setSelectedSizeFilter('Todas');
+                    setSelectedColorFilter('Todos');
+                  }}
+                  className={`px-5 py-2.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all active:scale-95 ${
+                    isSelected
+                      ? 'bg-[#111111] text-white shadow-xs'
+                      : 'bg-[#F5F5F7] text-zinc-600 hover:text-[#111111]'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Active Sub-filters Pills */}
+          {(selectedSizeFilter !== 'Todas' ||
+            selectedColorFilter !== 'Todos' ||
+            sortByPrice !== 'relevancia' ||
+            onlyInStock) && (
+            <div className="flex items-center gap-2 flex-wrap pt-1">
+              {selectedSizeFilter !== 'Todas' && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F5F7] text-xs font-semibold text-[#111111]">
+                  Talla: {selectedSizeFilter}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSizeFilter('Todas')}
+                    aria-label="Quitar filtro de talla"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {selectedColorFilter !== 'Todos' && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F5F7] text-xs font-semibold text-[#111111]">
+                  Color: {selectedColorFilter}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedColorFilter('Todos')}
+                    aria-label="Quitar filtro de color"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {sortByPrice !== 'relevancia' && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F5F7] text-xs font-semibold text-[#111111]">
+                  {sortByPrice === 'precio_asc' ? 'Menor a mayor precio' : 'Mayor a menor precio'}
+                  <button
+                    type="button"
+                    onClick={() => setSortByPrice('relevancia')}
+                    aria-label="Quitar orden de precio"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {onlyInStock && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F5F7] text-xs font-semibold text-[#111111]">
+                  Solo con stock
+                  <button
+                    type="button"
+                    onClick={() => setOnlyInStock(false)}
+                    aria-label="Quitar filtro de stock"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
             </div>
           )}
         </section>
 
-        {/* 2-Column Studio Product Grid (1:1 Dribbble #27573251) */}
+        {/* Product Grid (2 Columns on Mobile like Dribbble #27573251, 3 on Desktop) */}
         <section>
-          {filteredProducts.length === 0 ? (
-            <div className="py-16 text-center bg-[#F5F5F7] rounded-[28px] p-6 space-y-3">
-              <Search className="w-8 h-8 text-zinc-400 mx-auto" />
-              <h3 className="text-sm font-bold text-[#111111]">
+          {!isHydrated ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-6">
+              {[1, 2, 3, 4, 5, 6].map((n) => (
+                <div key={n} className="space-y-3">
+                  <div className="aspect-[4/5] rounded-[28px] bg-[#F5F5F7] animate-pulse" />
+                  <div className="h-4 w-2/3 bg-[#F5F5F7] rounded animate-pulse" />
+                  <div className="h-4 w-1/3 bg-[#F5F5F7] rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="rounded-[28px] bg-[#F5F5F7] p-12 text-center max-w-md mx-auto my-4">
+              <p className="text-base font-bold text-[#111111] mb-1">
                 {activeNavTab === 'favorites'
-                  ? 'Tu lista de favoritos está vacía'
-                  : 'No encontramos artículos con estos filtros'}
-              </h3>
-              <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                  ? 'Aún no tienes prendas favoritas'
+                  : 'Sin resultados para esta búsqueda'}
+              </p>
+              <p className="text-xs text-zinc-500 mb-5">
                 {activeNavTab === 'favorites'
-                  ? 'Toca el ícono del corazón en cualquier prenda para guardarla en tu colección.'
-                  : 'Prueba seleccionando otra categoría o restablece los filtros de talla y color.'}
+                  ? 'Toca el corazón en cualquier camiseta, bolso o chancla para guardarla aquí.'
+                  : 'Prueba limpiando los filtros o seleccionando otra categoría.'}
               </p>
               <button
                 type="button"
                 onClick={clearFilters}
-                className="px-6 py-2.5 rounded-full bg-[#111111] text-white font-semibold text-xs"
+                className="px-6 py-2.5 rounded-full bg-[#111111] text-white font-semibold text-xs hover:bg-zinc-800 transition"
               >
-                Ver Todo el Catálogo
+                Explorar Catálogo
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-6 sm:gap-x-6 sm:gap-y-8">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-7">
               {filteredProducts.map((producto) => (
                 <ProductCard
                   key={producto.id}
                   producto={producto}
-                  onSelect={(p) => setSelectedProduct(p)}
+                  onSelect={(prod) => setSelectedProduct(prod)}
                 />
               ))}
             </div>
@@ -439,103 +506,93 @@ export default function Home() {
         </section>
       </main>
 
-      {/* Store Footer with Legal, Policies & HomeLab Credit at the Bottom of the Page */}
+      {/* Downbar Footer (100% Real Policies, Cartagena Base & HomeLab copyright) */}
       <StoreFooter />
 
       {/* Cookie Consent Banner */}
       <CookieConsentBanner />
 
-      {/* Floating Matte Black Pill Bottom Navigation Dock (1:1 Dribbble #27573251)
-          Actions: Inicio | Favoritos | Carrito | WhatsApp Oficial | Panel Administrativo */}
-      <nav
-        aria-label="Navegación inferior"
-        className="fixed bottom-4 left-0 right-0 z-30 px-4 max-w-sm mx-auto"
-      >
-        <div className="bg-[#111111] text-white rounded-full p-2 flex items-center justify-between shadow-dock">
+      {/* Shopper-Only Floating Bottom Pill Navigation Dock (1:1 Dribbble #27573251) */}
+      <div className="fixed bottom-5 left-0 right-0 z-30 px-4 pointer-events-none">
+        <div className="max-w-md mx-auto bg-[#111111]/95 backdrop-blur-xl text-white rounded-full p-2 shadow-2xl pointer-events-auto flex items-center justify-between border border-white/10">
+          {/* Home Tab */}
           <button
             type="button"
             onClick={() => setActiveNavTab('home')}
-            className={`w-11 h-11 rounded-full flex items-center justify-center transition ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold transition ${
               activeNavTab === 'home'
                 ? 'bg-white text-[#111111]'
                 : 'text-zinc-400 hover:text-white'
             }`}
-            aria-label="Inicio"
-            title="Inicio"
           >
             <HomeIcon className="w-4 h-4" />
+            <span>Inicio</span>
           </button>
 
+          {/* Favorites Tab */}
           <button
             type="button"
             onClick={() => setActiveNavTab('favorites')}
-            className={`w-11 h-11 rounded-full flex items-center justify-center transition ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold transition relative ${
               activeNavTab === 'favorites'
                 ? 'bg-white text-[#111111]'
                 : 'text-zinc-400 hover:text-white'
             }`}
-            aria-label="Favoritos"
-            title="Favoritos"
           >
             <Heart className="w-4 h-4" />
+            <span className="hidden sm:inline">Favoritos</span>
+            {favorites.length > 0 && (
+              <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+                {favorites.length}
+              </span>
+            )}
           </button>
 
-          {/* Center Carrito Button (Renamed from Bag to Carrito) */}
+          {/* Bag / Cart Button */}
           <button
             type="button"
             onClick={() => setIsCartOpen(true)}
-            className="h-11 px-4 rounded-full bg-white text-[#111111] font-bold text-xs flex items-center gap-2 active:scale-95 transition"
-            aria-label="Abrir Carrito"
-            title="Abrir Carrito"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold text-zinc-300 hover:text-white transition relative"
           >
             <ShoppingBag className="w-4 h-4" />
-            <span className="tabular-nums">
-              {isHydrated && cartTotalCount > 0 ? formatCOP(cartSubtotal) : 'Carrito'}
+            <span>
+              {cartTotalCount > 0 ? formatCOP(cartSubtotal) : 'Bolsa'}
             </span>
-            {isHydrated && cartTotalCount > 0 && (
-              <span className="w-5 h-5 rounded-full bg-[#111111] text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+            {cartTotalCount > 0 && (
+              <span className="w-5 h-5 rounded-full bg-white text-[#111111] text-[10px] font-bold flex items-center justify-center">
                 {cartTotalCount}
               </span>
             )}
           </button>
 
-          {/* Functional Direct WhatsApp Oficial Button (Replaces Políticas in Floating Dock) */}
+          {/* Customer Order Tracker / Mis Pedidos Button (Replaces internal /admin button) */}
           <button
             type="button"
-            onClick={() => handleOpenWhatsAppDirect()}
-            className="w-11 h-11 rounded-full flex items-center justify-center text-zinc-400 hover:text-white transition"
-            aria-label="Contacto directo a WhatsApp Oficial"
-            title="Contacto directo a WhatsApp Oficial"
+            onClick={() => setIsTrackerOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-full text-xs font-semibold text-zinc-300 hover:text-white transition relative"
+            title="Rastrear Pedido y Notificaciones de Despacho"
+            aria-label="Rastrear estado de mi pedido"
           >
-            <MessageCircle className="w-4 h-4" />
-          </button>
-
-          {/* Primary Entry to Admin Panel (/admin) */}
-          <Link
-            href="/admin"
-            className="relative w-11 h-11 rounded-full flex items-center justify-center text-zinc-400 hover:text-white transition"
-            aria-label="Panel Administrativo"
-            title="Panel Administrativo"
-          >
-            <ShieldCheck className="w-4 h-4" />
-            {criticalAlerts.length > 0 && (
-              <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-red-500" />
+            <PackageCheck className="w-4 h-4" />
+            <span className="hidden sm:inline">Pedidos</span>
+            {unreadNotificationsCount > 0 && (
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 absolute top-2 right-2 animate-pulse" />
             )}
-          </Link>
+          </button>
         </div>
-      </nav>
+      </div>
 
-      {/* Season Presentation Modal (Closes when clicking outside) */}
+      {/* Onboarding / Season Presentation Modal */}
       {showOnboardingScreen && (
         <div
           onClick={() => setShowOnboardingScreen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-in fade-in cursor-pointer"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200 cursor-pointer"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm bg-white rounded-[36px] p-5 flex flex-col justify-between text-left space-y-5 shadow-2xl cursor-default"
+            className="relative w-full max-w-sm bg-white rounded-[36px] p-5 shadow-2xl overflow-hidden flex flex-col gap-5 cursor-default"
           >
-            <div className="relative aspect-[4/5] w-full rounded-[28px] overflow-hidden bg-[#F5F5F7]">
+            <div className="relative aspect-[4/4] w-full rounded-[28px] overflow-hidden bg-[#F5F5F7]">
               <Image
                 src="https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=900&q=85"
                 alt="Presentación Promoción de Temporada"
@@ -558,7 +615,7 @@ export default function Home() {
                 {storeConfig.storeCity} · Temporada 2026
               </span>
               <h2 className="text-2xl font-bold text-[#111111] leading-tight tracking-tight">
-                Diseño Contemporáneo & Distribución Nacional
+                Diseño Contemporáneo &amp; Distribución Nacional
               </h2>
               <p className="text-xs text-zinc-500 leading-relaxed">
                 {storeConfig.corporateTagline}
@@ -601,10 +658,17 @@ export default function Home() {
         }}
       />
 
-      {/* Cart Drawer with WhatsApp checkout (Closes when clicking outside) */}
+      {/* Cart Drawer with WhatsApp checkout & Shipping Selector */}
       <CartDrawer
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
+        onOpenTracker={() => setIsTrackerOpen(true)}
+      />
+
+      {/* Customer Real-Time Order & Guide Tracker Modal */}
+      <OrderTrackerModal
+        isOpen={isTrackerOpen}
+        onClose={() => setIsTrackerOpen(false)}
       />
 
       {/* 100% Functional Store Filter Modal (Categories: Camisetas, Bolsos, Chanclas + Sizes + Colors + Price Sort + Stock) */}

@@ -95,6 +95,8 @@ interface StoreContextType {
     clienteNombre: string;
     clienteDireccion: string;
     clienteTelefono?: string;
+    costoEnvio?: number;
+    envioTexto?: string;
     referenceUrl?: string;
     notas?: string;
   }) => Order;
@@ -893,6 +895,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     clienteNombre: string;
     clienteDireccion: string;
     clienteTelefono?: string;
+    costoEnvio?: number;
+    envioTexto?: string;
     referenceUrl?: string;
     notas?: string;
   }): Order => {
@@ -903,6 +907,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const formattedDate = getFormattedNow();
     const orderItems = [...cart];
     const orderId = `ord-${Date.now()}`;
+    const safeShipping = Math.max(0, Number(payload.costoEnvio || 0));
+    const shippingLabel = payload.envioTexto || storeConfig.deliveryNote;
 
     const newOrder: Order = {
       id: orderId,
@@ -915,16 +921,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       clienteTelefono: payload.clienteTelefono || '',
       items: orderItems,
       subtotal: cartSubtotal,
-      costoEnvio: 0,
+      costoEnvio: safeShipping,
       descuentoManual: 0,
-      envioTexto: storeConfig.deliveryNote,
-      total: cartSubtotal,
+      envioTexto: shippingLabel,
+      total: cartSubtotal + safeShipping,
       estado: 'Pendiente',
       metodoPagoInterno: 'Por definir',
       stockDeducted: false,
       notas: payload.notas,
       referenceUrl:
-        payload.referenceUrl || `https://lasanta.store/pedido/${orderNum.replace('#', '')}`,
+        payload.referenceUrl ||
+        `https://lasantastore.enigmaproducciones.com/pedido/${orderNum.replace('#', '')}`,
     };
 
     registerMyOrderId(newOrder.id);
@@ -941,6 +948,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         clienteNombre: newOrder.clienteNombre,
         clienteDireccion: newOrder.clienteDireccion,
         clienteTelefono: newOrder.clienteTelefono,
+        costoEnvio: safeShipping,
+        envioTexto: shippingLabel,
         items: orderItems,
         referenceUrl: newOrder.referenceUrl,
         notas: newOrder.notas,

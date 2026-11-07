@@ -1,8 +1,11 @@
 import { CartItem, formatCOP } from './data';
 
 export interface WhatsAppOrderPayload {
+  orderNumber?: string;
   items: CartItem[];
   subtotal: number;
+  costoEnvio?: number;
+  envioTexto?: string;
   total: number;
   clienteNombre?: string;
   clienteDireccion?: string;
@@ -17,7 +20,18 @@ export function generateWhatsAppMessage(
   payload: WhatsAppOrderPayload,
   storePhone: string
 ): { messageText: string; waLink: string } {
-  const { items, subtotal, total, clienteNombre, clienteDireccion, referenceUrl } = payload;
+  const {
+    orderNumber,
+    items,
+    subtotal,
+    costoEnvio = 0,
+    envioTexto,
+    total,
+    clienteNombre,
+    clienteDireccion,
+    clienteTelefono,
+    referenceUrl,
+  } = payload;
 
   const itemsLines = items
     .map((item) => {
@@ -33,26 +47,46 @@ export function generateWhatsAppMessage(
     .join('\n');
 
   const nameVal =
-    clienteNombre && clienteNombre.trim() ? clienteNombre.trim() : '[Espacio para cliente]';
+    clienteNombre && clienteNombre.trim()
+      ? clienteNombre.trim()
+      : 'Cliente La Santa Store';
+  const phoneVal =
+    clienteTelefono && clienteTelefono.trim()
+      ? clienteTelefono.trim()
+      : 'Confirmar por este chat';
   const addressVal =
-    clienteDireccion && clienteDireccion.trim() ? clienteDireccion.trim() : '[Espacio para cliente]';
+    clienteDireccion && clienteDireccion.trim()
+      ? clienteDireccion.trim()
+      : 'Cartagena de Indias';
 
-  const refUrl = referenceUrl || `https://lasanta.store/pedido/LS-${Date.now().toString().slice(-6)}`;
+  const shippingLabel =
+    costoEnvio > 0
+      ? `${formatCOP(costoEnvio)}${envioTexto ? ` (${envioTexto})` : ''}`
+      : `Gratis ($0)${envioTexto ? ` · ${envioTexto}` : ''}`;
 
-  const messageText = `¡Hola La Santa Store! 👑 Me interesa realizar el siguiente pedido:
+  const refUrl =
+    referenceUrl ||
+    `https://lasantastore.enigmaproducciones.com/pedido/LS-${Date.now()
+      .toString()
+      .slice(-6)}`;
+
+  const orderHeader = orderNumber ? ` (Orden ${orderNumber})` : '';
+
+  const messageText = `¡Hola La Santa Store! 👑 Quiero confirmar mi pedido${orderHeader}:
 
 🛍️ DETALLE DEL PEDIDO:
 ${itemsLines}
 
 💵 Subtotal: ${formatCOP(subtotal)}
-🚚 Envío: (A convenir)
-💰 TOTAL ESTIMADO: ${formatCOP(total)}
+🚚 Envío: ${shippingLabel}
+💰 TOTAL A PAGAR: ${formatCOP(total)}
 
-👤 DATOS DE ENVÍO:
+👤 DATOS DE DESPACHO:
 - Nombre: ${nameVal}
-- Dirección: ${addressVal}
+- Teléfono: ${phoneVal}
+- Dirección / Ciudad: ${addressVal}
 
-Link de referencia del carrito: ${refUrl}`;
+Link de referencia del pedido: ${refUrl}`;
 
   const cleanPhone = storePhone.replace(/\D/g, '');
   const encodedText = encodeURIComponent(messageText);

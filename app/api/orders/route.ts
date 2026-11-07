@@ -208,6 +208,14 @@ export async function POST(req: NextRequest) {
       0
     );
     const whatsappTax = calculateTaxBreakdown(subtotal, 19);
+    const safeShipping = Math.min(
+      50000,
+      Math.max(0, Number(body.costoEnvio || 0))
+    );
+    const shippingLabel =
+      typeof body.envioTexto === 'string' && body.envioTexto.trim()
+        ? body.envioTexto.trim().slice(0, 120)
+        : db.storeConfig.deliveryNote;
 
     const requestedOrderNum =
       typeof body.orderNumber === 'string' && /^#ORD-\d{4,8}$/.test(body.orderNumber.trim())
@@ -245,10 +253,10 @@ export async function POST(req: NextRequest) {
       baseGravable: whatsappTax.baseGravable,
       impuestoIva: whatsappTax.impuestoIva,
       ivaPorcentaje: whatsappTax.ivaPorcentaje,
-      costoEnvio: 0,
+      costoEnvio: safeShipping,
       descuentoManual: 0,
-      envioTexto: db.storeConfig.deliveryNote,
-      total: subtotal,
+      envioTexto: shippingLabel,
+      total: subtotal + safeShipping,
       estado: 'Pendiente',
       metodoPagoInterno: 'Por definir',
       stockDeducted: false,

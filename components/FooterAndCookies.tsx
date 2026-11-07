@@ -110,12 +110,21 @@ export function StoreFooter() {
           </div>
         </div>
 
-        {/* Downbar Bottom Copyright: Left "© 2026 Store Oficial. Todos los derechos reservados" | Right "HomeLab" */}
+        {/* Downbar Bottom Copyright */}
         <div className="border-t border-zinc-200 pt-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-zinc-500">
-          <p>© 2026 Store Oficial. Todos los derechos reservados</p>
-          <p className="font-semibold text-[#111111]">
-            Desarrollado por <span className="font-extrabold">HomeLab</span>
-          </p>
+          <p>© 2026 {storeConfig.storeName} Oficial. Todos los derechos reservados</p>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/admin"
+              className="text-zinc-400 hover:text-[#111111] transition flex items-center gap-1 text-[11px]"
+            >
+              <ShieldCheck className="w-3 h-3" />
+              <span>Portal Corporativo POS</span>
+            </Link>
+            <p className="font-semibold text-[#111111]">
+              Desarrollado por <span className="font-extrabold">HomeLab</span>
+            </p>
+          </div>
         </div>
       </div>
     </footer>
