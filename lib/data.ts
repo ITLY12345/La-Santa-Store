@@ -16,6 +16,8 @@ export interface Producto {
   descripcion: string;
   imagenes: string[];
   precio_base: number;
+  costo_unitario?: number; // Costo de adquisición/producción (COGS) para cálculo de margen bruto
+  iva_porcentaje?: number; // Tarifa IVA (por defecto 19% Colombia)
   configuracion_alertas: {
     stock_minimo_alerta: number;
   };
@@ -56,10 +58,13 @@ export interface Order {
   id: string;
   orderNumber: string;
   invoiceNumber?: string; // Consecutivo oficial ej. FAC-1001
+  creditNoteNumber?: string; // Nota Crédito oficial ej. NC-1001 (cuando se anula una factura en firme)
   fecha: string;
   fechaFacturacion?: string;
   fechaDespacho?: string;
   fechaEntrega?: string;
+  fechaNotaCredito?: string;
+  motivoNotaCredito?: string;
   origen: 'WhatsApp' | 'POS Interno';
   clienteNombre: string;
   clienteDocumento?: string; // Cédula o NIT
@@ -69,6 +74,9 @@ export interface Order {
   guiaSeguimiento?: string;
   items: CartItem[];
   subtotal: number;
+  baseGravable?: number; // Base antes de IVA
+  impuestoIva?: number; // IVA 19% incluido/desglosado
+  ivaPorcentaje?: number;
   costoEnvio: number;
   descuentoManual?: number;
   envioTexto: string;
@@ -120,6 +128,7 @@ export interface StoreConfig {
   currencySymbol: string;
   deliveryNote: string;
   nextInvoiceSequence: number;
+  nextCreditNoteSequence?: number;
 }
 
 export const DEFAULT_STORE_CONFIG: StoreConfig = {
@@ -134,6 +143,7 @@ export const DEFAULT_STORE_CONFIG: StoreConfig = {
   currencySymbol: '$',
   deliveryNote: '(Despacho desde Cartagena · A convenir)',
   nextInvoiceSequence: 1003,
+  nextCreditNoteSequence: 1001,
 };
 
 export const INITIAL_PLUGINS: PluginConnector[] = [
@@ -230,6 +240,8 @@ export const INITIAL_PRODUCTS: Producto[] = [
       'https://images.unsplash.com/photo-1603487742131-4160ec999306?auto=format&fit=crop&w=800&q=85',
     ],
     precio_base: 85000,
+    costo_unitario: 38000,
+    iva_porcentaje: 19,
     configuracion_alertas: {
       stock_minimo_alerta: 4,
     },
@@ -296,6 +308,8 @@ export const INITIAL_PRODUCTS: Producto[] = [
       'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85',
     ],
     precio_base: 95000,
+    costo_unitario: 42000,
+    iva_porcentaje: 19,
     configuracion_alertas: {
       stock_minimo_alerta: 5,
     },
@@ -362,6 +376,8 @@ export const INITIAL_PRODUCTS: Producto[] = [
       'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=800&q=85',
     ],
     precio_base: 110000,
+    costo_unitario: 49000,
+    iva_porcentaje: 19,
     configuracion_alertas: {
       stock_minimo_alerta: 3,
     },
@@ -404,6 +420,8 @@ export const INITIAL_PRODUCTS: Producto[] = [
       'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?auto=format&fit=crop&w=800&q=85',
     ],
     precio_base: 98000,
+    costo_unitario: 44000,
+    iva_porcentaje: 19,
     configuracion_alertas: {
       stock_minimo_alerta: 4,
     },
@@ -454,6 +472,8 @@ export const INITIAL_PRODUCTS: Producto[] = [
       'https://images.unsplash.com/photo-1562157873-818bc0726f68?auto=format&fit=crop&w=800&q=85',
     ],
     precio_base: 89000,
+    costo_unitario: 39000,
+    iva_porcentaje: 19,
     configuracion_alertas: {
       stock_minimo_alerta: 4,
     },
@@ -504,6 +524,8 @@ export const INITIAL_PRODUCTS: Producto[] = [
       'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=800&q=85',
     ],
     precio_base: 79000,
+    costo_unitario: 35000,
+    iva_porcentaje: 19,
     configuracion_alertas: {
       stock_minimo_alerta: 3,
     },
@@ -537,4 +559,18 @@ export function formatCOP(amount: number): string {
   const rounded = Math.round(amount).toString();
   const withDots = rounded.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return `$${withDots}`;
+}
+
+/**
+ * Calcula el desglose contable de Base Gravable + IVA (estándar DIAN Colombia / Odoo ERP).
+ */
+export function calculateTaxBreakdown(
+  netGoodsAmount: number,
+  ivaRate = 19
+): { baseGravable: number; impuestoIva: number; ivaPorcentaje: number } {
+  const safeNet = Math.max(0, Math.round(Number(netGoodsAmount) || 0));
+  const rate = Math.max(0, Number(ivaRate) || 19);
+  const baseGravable = Math.round(safeNet / (1 + rate / 100));
+  const impuestoIva = Math.max(0, safeNet - baseGravable);
+  return { baseGravable, impuestoIva, ivaPorcentaje: rate };
 }

@@ -375,13 +375,35 @@ export async function DELETE(req: NextRequest) {
       db.products = stockRes.products;
     }
 
-    db.orders = db.orders.filter((o) => o.id !== id);
-    db.notifications = db.notifications.filter((n) => n.orderId !== id);
+    if (target.invoiceNumber) {
+      const nextNcSeq = db.storeConfig.nextCreditNoteSequence || 1001;
+      const creditNoteNumber = target.creditNoteNumber || `NC-${nextNcSeq}`;
+      if (!target.creditNoteNumber) {
+        db.storeConfig.nextCreditNoteSequence = nextNcSeq + 1;
+      }
+      db.orders = db.orders.map((o) =>
+        o.id === id
+          ? {
+              ...o,
+              estado: 'Cancelado',
+              stockDeducted: false,
+              creditNoteNumber,
+              fechaNotaCredito: getFormattedNow(),
+              motivoNotaCredito: 'Anulación contable mediante Nota Crédito con retorno a inventario',
+            }
+          : o
+      );
+    } else {
+      db.orders = db.orders.filter((o) => o.id !== id);
+      db.notifications = db.notifications.filter((n) => n.orderId !== id);
+    }
 
     const saved = await writeDbAsync(db);
     return NextResponse.json({
       success: true,
-      message: `Factura ${target.invoiceNumber || target.orderNumber} eliminada y stock restituido.`,
+      message: target.invoiceNumber
+        ? `Nota Crédito emitida para ${target.invoiceNumber} y stock restituido.`
+        : `Orden ${target.orderNumber} eliminada.`,
       invoices: saved.orders,
       products: saved.products,
     });

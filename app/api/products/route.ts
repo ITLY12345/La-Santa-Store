@@ -56,6 +56,8 @@ export async function POST(req: NextRequest) {
       descripcion: (body.descripcion || '').trim().slice(0, 1000),
       imagenes: imgCheck.sanitized,
       precio_base: Math.max(0, Number(body.precio_base) || 0),
+      costo_unitario: Math.max(0, Number(body.costo_unitario) || 0),
+      iva_porcentaje: Math.max(0, Number(body.iva_porcentaje ?? 19)),
       configuracion_alertas: {
         stock_minimo_alerta: Math.max(
           0,

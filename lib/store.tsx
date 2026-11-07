@@ -351,7 +351,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
 
     fetchBackendState(true);
-    const interval = setInterval(() => fetchBackendState(false), 5000);
+
+    // Visibility-aware background sync (15s only when tab is visible) to prevent server overload
+    const interval = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchBackendState(false);
+      }
+    }, 15000);
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchBackendState(false);
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
 
     return () => {
       isMounted = false;
@@ -359,6 +375,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         window.cancelAnimationFrame(rafId);
       }
       clearInterval(interval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
     };
   }, [dispatchNativeAndInAppPush]);
 
@@ -536,7 +555,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     newItems: CartItem[],
     newDeducted: boolean
   ): { success: boolean; products: Producto[]; errorMessage?: string } => {
-    const nextProducts: Producto[] = JSON.parse(JSON.stringify(currentProducts));
+    const nextProducts: Producto[] = structuredClone(currentProducts);
 
     if (oldDeducted) {
       for (const item of oldItems) {
@@ -644,6 +663,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateVariantStock = (productoId: string, varianteId: string, newStock: number) => {
+    const previousProducts = structuredClone(products);
     const validated = Math.max(0, newStock);
     const updated = products.map((prod) => {
       if (prod.id !== productoId) return prod;
@@ -665,10 +685,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         varianteId,
         newStock: validated,
       }),
-    }).catch(() => {});
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.products)) {
+          saveProductsLocal(data.products);
+        }
+      })
+      .catch((err) => {
+        console.error('Error sincronizando stock con servidor, revirtiendo estado local:', err);
+        saveProductsLocal(previousProducts);
+      });
   };
 
   const updateProductAlertThreshold = (productoId: string, newThreshold: number) => {
+    const previousProducts = structuredClone(products);
     const validated = Math.max(0, newThreshold);
     const updated = products.map((prod) => {
       if (prod.id !== productoId) return prod;
@@ -689,7 +721,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         productoId,
         newThreshold: validated,
       }),
-    }).catch(() => {});
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.products)) {
+          saveProductsLocal(data.products);
+        }
+      })
+      .catch((err) => {
+        console.error('Error actualizando umbral de alerta, revirtiendo:', err);
+        saveProductsLocal(previousProducts);
+      });
   };
 
   const resetToInitialCatalog = () => {
@@ -698,7 +741,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'reset' }),
     })
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then((data) => {
         if (data.success && data.db) {
           saveProductsLocal(data.db.products);
@@ -712,7 +758,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           setPlugins(data.db.plugins);
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error('Error restableciendo catálogo:', err);
+      });
   };
 
   const addToCart = (
@@ -1181,24 +1229,66 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return { success: true, order: updatedOrder };
   };
 
-  // 5. Delete an Order / Invoice and restore stock
+  // 5. Annul / Issue Credit Note for Billed Invoice OR Delete Draft Order, restoring stock
   const deleteOrder = (orderId: string): { success: boolean; message?: string } => {
     const target = orders.find((o) => o.id === orderId);
     if (!target) {
       return { success: false, message: 'Factura no encontrada.' };
     }
 
+    const previousOrders = structuredClone(orders);
+    const previousProducts = structuredClone(products);
+
     if (target.stockDeducted) {
       const stockRes = reconcileClientStock(products, target.items, true, [], false);
       saveProductsLocal(stockRes.products);
     }
 
-    setOrders(orders.filter((o) => o.id !== orderId));
-    setNotifications(notifications.filter((n) => n.orderId !== orderId));
+    if (target.invoiceNumber) {
+      const nextNcSeq = storeConfig.nextCreditNoteSequence || 1001;
+      const creditNoteNumber = target.creditNoteNumber || `NC-${nextNcSeq}`;
+      setOrders(
+        orders.map((o) =>
+          o.id === orderId
+            ? {
+                ...o,
+                estado: 'Cancelado',
+                stockDeducted: false,
+                creditNoteNumber,
+                fechaNotaCredito: getFormattedNow(),
+                motivoNotaCredito: 'Anulación contable mediante Nota Crédito con retorno a inventario',
+              }
+            : o
+        )
+      );
+    } else {
+      setOrders(orders.filter((o) => o.id !== orderId));
+      setNotifications(notifications.filter((n) => n.orderId !== orderId));
+    }
 
     fetch(`/api/orders?id=${encodeURIComponent(orderId)}`, {
       method: 'DELETE',
-    }).catch(() => {});
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.success) {
+          if (Array.isArray(data.orders)) setOrders(data.orders);
+          if (Array.isArray(data.products)) saveProductsLocal(data.products);
+          if (data.storeConfig) {
+            setStoreConfig({
+              ...PUBLIC_SAFE_DEFAULT_CONFIG,
+              ...data.storeConfig,
+              adminPin: '',
+            });
+          }
+        }
+      })
+      .catch((err) => {
+        console.error('Error anulando/eliminando orden, revirtiendo estado local:', err);
+        setOrders(previousOrders);
+        saveProductsLocal(previousProducts);
+      });
 
     return { success: true };
   };
@@ -1255,6 +1345,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateStoreConfig = (configUpdate: Partial<StoreConfig>) => {
+    const previousCfg = structuredClone(storeConfig);
     const nextCfg: StoreConfig = {
       ...storeConfig,
       ...configUpdate,
@@ -1271,7 +1362,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           ...configUpdate,
         },
       }),
-    }).catch(() => {});
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.success && data.storeConfig) {
+          setStoreConfig({
+            ...PUBLIC_SAFE_DEFAULT_CONFIG,
+            ...data.storeConfig,
+            adminPin: '',
+          });
+        }
+      })
+      .catch((err) => {
+        console.error('Error guardando configuración corporativa, revirtiendo:', err);
+        setStoreConfig(previousCfg);
+      });
   };
 
   return (

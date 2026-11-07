@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Image from 'next/image';
-import { Order, formatCOP } from '@/lib/data';
+import { Order, formatCOP, calculateTaxBreakdown } from '@/lib/data';
 import { useStore } from '@/lib/store';
 import {
   X,
@@ -144,9 +144,31 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
               <p className="text-[11px] text-zinc-500 mt-0.5">
                 Emisión: {order.fechaFacturacion || order.fecha}
               </p>
+              {order.creditNoteNumber && (
+                <p className="text-[11px] font-bold text-red-700 font-mono mt-0.5">
+                  Nota Crédito: {order.creditNoteNumber}
+                </p>
+              )}
               <div className="mt-2">{getStatusBadge(order.estado)}</div>
             </div>
           </div>
+
+          {order.creditNoteNumber && (
+            <div className="p-3.5 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-extrabold text-red-700">
+                  DOCUMENTO ANULADO MEDIANTE NOTA CRÉDITO {order.creditNoteNumber}
+                </p>
+                <p className="text-[11px] text-red-600">
+                  {order.motivoNotaCredito || 'Reversión contable y reintegro de unidades a bodega.'}{' '}
+                  {order.fechaNotaCredito ? `· Fecha: ${order.fechaNotaCredito}` : ''}
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-red-600 text-white font-mono font-bold text-[11px] shrink-0">
+                {order.creditNoteNumber}
+              </span>
+            </div>
+          )}
 
           {/* Client & Billing Metadata */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-[#F5F5F7] p-4 rounded-2xl">
@@ -237,33 +259,55 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
             </div>
           </div>
 
-          {/* Total Breakdown */}
-          <div className="bg-[#F5F5F7] p-4 rounded-2xl space-y-1.5 text-xs">
-            <div className="flex justify-between text-zinc-500">
-              <span>Subtotal Productos ({order.items.reduce((a, b) => a + b.cantidad, 0)} un.)</span>
-              <span className="font-semibold text-[#111111] tabular-nums">
-                {formatCOP(order.subtotal)}
-              </span>
-            </div>
-            <div className="flex justify-between text-zinc-500">
-              <span>Costo de Envío / Domicilio</span>
-              <span className="text-[#111111] tabular-nums">
-                {order.costoEnvio > 0 ? formatCOP(order.costoEnvio) : order.envioTexto}
-              </span>
-            </div>
-            {order.descuentoManual && order.descuentoManual > 0 ? (
-              <div className="flex justify-between text-zinc-700 font-medium">
-                <span>Descuento / Ajuste Comercial</span>
-                <span className="tabular-nums">-{formatCOP(order.descuentoManual)}</span>
+          {/* Total Breakdown with DIAN / Odoo ERP Tax Calculation */}
+          {(() => {
+            const netGoods = Math.max(0, order.subtotal - (order.descuentoManual || 0));
+            const tax = calculateTaxBreakdown(netGoods, order.ivaPorcentaje ?? 19);
+            const baseGravable = order.baseGravable ?? tax.baseGravable;
+            const impuestoIva = order.impuestoIva ?? tax.impuestoIva;
+            const ivaRate = order.ivaPorcentaje ?? tax.ivaPorcentaje;
+
+            return (
+              <div className="bg-[#F5F5F7] p-4 rounded-2xl space-y-1.5 text-xs">
+                <div className="flex justify-between text-zinc-500">
+                  <span>
+                    Subtotal Bruto ({order.items.reduce((a, b) => a + b.cantidad, 0)} un.)
+                  </span>
+                  <span className="font-semibold text-[#111111] tabular-nums">
+                    {formatCOP(order.subtotal)}
+                  </span>
+                </div>
+                {order.descuentoManual && order.descuentoManual > 0 ? (
+                  <div className="flex justify-between text-zinc-700 font-medium">
+                    <span>Descuento Comercial Aplicado</span>
+                    <span className="tabular-nums">-{formatCOP(order.descuentoManual)}</span>
+                  </div>
+                ) : null}
+                <div className="flex justify-between text-zinc-500 pt-1 border-t border-zinc-200/70">
+                  <span>Base Gravable (Sin IVA)</span>
+                  <span className="font-mono text-[#111111] tabular-nums">
+                    {formatCOP(baseGravable)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-zinc-500">
+                  <span>Impuesto IVA ({ivaRate}% Incluido)</span>
+                  <span className="font-mono text-[#111111] tabular-nums">
+                    {formatCOP(impuestoIva)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-zinc-500">
+                  <span>Costo de Envío / Domicilio</span>
+                  <span className="text-[#111111] tabular-nums">
+                    {order.costoEnvio > 0 ? formatCOP(order.costoEnvio) : order.envioTexto}
+                  </span>
+                </div>
+                <div className="border-t border-zinc-200 pt-2.5 flex justify-between text-sm font-extrabold text-[#111111]">
+                  <span>TOTAL FACTURADO (COP)</span>
+                  <span className="text-base tabular-nums">{formatCOP(order.total)}</span>
+                </div>
               </div>
-            ) : null}
-            <div className="border-t border-zinc-200 pt-2.5 flex justify-between text-sm font-extrabold text-[#111111]">
-              <span>TOTAL FACTURADO (COP)</span>
-              <span className="text-base tabular-nums">
-                {formatCOP(order.total)}
-              </span>
-            </div>
-          </div>
+            );
+          })()}
 
           {order.notas && (
             <div className="p-3 rounded-xl bg-[#F5F5F7] text-[11px] text-zinc-600">

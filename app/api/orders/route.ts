@@ -7,7 +7,13 @@ import {
   reconcileStockItems,
   createOrderStatusNotification,
 } from '@/lib/server-db';
-import { Order, formatCOP, EstadoPedido, CartItem } from '@/lib/data';
+import {
+  Order,
+  formatCOP,
+  EstadoPedido,
+  CartItem,
+  calculateTaxBreakdown,
+} from '@/lib/data';
 import {
   isAdminRequest,
   unauthorizedResponse,
@@ -69,6 +75,7 @@ export async function POST(req: NextRequest) {
       const envio = Math.max(0, Number(body.costoEnvio) || 0);
       const descuento = Math.max(0, Number(body.descuentoManual) || 0);
       const total = Math.max(0, subtotal + envio - descuento);
+      const tax = calculateTaxBreakdown(Math.max(0, subtotal - descuento), 19);
 
       const newOrder: Order = {
         id: typeof body.id === 'string' && body.id.startsWith('pos-') ? body.id : `pos-${Date.now()}`,
@@ -94,6 +101,9 @@ export async function POST(req: NextRequest) {
         guiaSeguimiento: (body.guiaSeguimiento || '').trim().slice(0, 80),
         items,
         subtotal,
+        baseGravable: tax.baseGravable,
+        impuestoIva: tax.impuestoIva,
+        ivaPorcentaje: tax.ivaPorcentaje,
         costoEnvio: envio,
         descuentoManual: descuento,
         envioTexto: envio > 0 ? formatCOP(envio) : 'Sin costo / Local Cartagena',
@@ -166,6 +176,16 @@ export async function POST(req: NextRequest) {
       }
 
       const qty = Math.max(1, Math.min(99, Math.floor(Number(it.cantidad) || 1)));
+      if (serverVariant.stock_disponible < qty) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Stock insuficiente para ${serverProd.nombre} (Talla ${serverVariant.talla} · ${serverVariant.color}). Disponible: ${serverVariant.stock_disponible} un.`,
+          },
+          { status: 400 }
+        );
+      }
+
       verifiedItems.push({
         cartItemId: `${serverProd.id}_${serverVariant.id_variante}`,
         productoId: serverProd.id,
@@ -187,6 +207,7 @@ export async function POST(req: NextRequest) {
       (acc, it) => acc + it.precio * it.cantidad,
       0
     );
+    const whatsappTax = calculateTaxBreakdown(subtotal, 19);
 
     const requestedOrderNum =
       typeof body.orderNumber === 'string' && /^#ORD-\d{4,8}$/.test(body.orderNumber.trim())
@@ -221,6 +242,9 @@ export async function POST(req: NextRequest) {
       clienteTelefono: (body.clienteTelefono || '').trim().slice(0, 40),
       items: verifiedItems,
       subtotal,
+      baseGravable: whatsappTax.baseGravable,
+      impuestoIva: whatsappTax.impuestoIva,
+      ivaPorcentaje: whatsappTax.ivaPorcentaje,
       costoEnvio: 0,
       descuentoManual: 0,
       envioTexto: db.storeConfig.deliveryNote,
@@ -300,15 +324,27 @@ export async function PUT(req: NextRequest) {
     }
 
     let assignedInvoice = existingOrder.invoiceNumber;
+    let assignedCreditNote = existingOrder.creditNoteNumber;
     let fechaFacturacion = existingOrder.fechaFacturacion;
     let fechaDespacho = existingOrder.fechaDespacho;
     let fechaEntrega = existingOrder.fechaEntrega;
+    let fechaNotaCredito = existingOrder.fechaNotaCredito;
+    let motivoNotaCredito = existingOrder.motivoNotaCredito;
     const nextSeq = db.storeConfig.nextInvoiceSequence || 1003;
 
     if (shouldDeductNext && !assignedInvoice) {
       assignedInvoice = `FAC-${nextSeq}`;
       fechaFacturacion = formattedDate;
       db.storeConfig.nextInvoiceSequence = nextSeq + 1;
+    }
+
+    // If an already-billed invoice is cancelled, automatically emit an official Credit Note (NC-XXXX)
+    if (nextEstado === 'Cancelado' && assignedInvoice && !assignedCreditNote) {
+      const nextNcSeq = db.storeConfig.nextCreditNoteSequence || 1001;
+      assignedCreditNote = `NC-${nextNcSeq}`;
+      fechaNotaCredito = formattedDate;
+      motivoNotaCredito = 'Anulación contable de factura con reversión de inventario';
+      db.storeConfig.nextCreditNoteSequence = nextNcSeq + 1;
     }
 
     if (nextEstado === 'Despachado' && !fechaDespacho) {
@@ -332,13 +368,17 @@ export async function PUT(req: NextRequest) {
         ? Math.max(0, Number(body.descuentoManual) || 0)
         : existingOrder.descuentoManual || 0;
     const total = Math.max(0, subtotal + envio - descuento);
+    const editTax = calculateTaxBreakdown(Math.max(0, subtotal - descuento), 19);
 
     const updatedOrder: Order = {
       ...existingOrder,
       invoiceNumber: assignedInvoice,
+      creditNoteNumber: assignedCreditNote,
       fechaFacturacion,
       fechaDespacho,
       fechaEntrega,
+      fechaNotaCredito,
+      motivoNotaCredito,
       clienteNombre:
         body.clienteNombre !== undefined
           ? body.clienteNombre.trim() || existingOrder.clienteNombre
@@ -365,6 +405,9 @@ export async function PUT(req: NextRequest) {
           : existingOrder.guiaSeguimiento,
       items: nextItems,
       subtotal,
+      baseGravable: editTax.baseGravable,
+      impuestoIva: editTax.impuestoIva,
+      ivaPorcentaje: editTax.ivaPorcentaje,
       costoEnvio: envio,
       descuentoManual: descuento,
       envioTexto:
@@ -446,14 +489,38 @@ export async function DELETE(req: NextRequest) {
       db.products = stockRes.products;
     }
 
-    db.orders = db.orders.filter((o) => o.id !== id);
-    db.notifications = db.notifications.filter((n) => n.orderId !== id);
+    // Estándar ERP / DIAN: Las facturas emitidas (con FAC-XXXX) son inmutables y se anulan mediante Nota Crédito (NC-XXXX)
+    if (target.invoiceNumber) {
+      const nextNcSeq = db.storeConfig.nextCreditNoteSequence || 1001;
+      const creditNoteNumber = target.creditNoteNumber || `NC-${nextNcSeq}`;
+      if (!target.creditNoteNumber) {
+        db.storeConfig.nextCreditNoteSequence = nextNcSeq + 1;
+      }
+
+      db.orders = db.orders.map((o) =>
+        o.id === id
+          ? {
+              ...o,
+              estado: 'Cancelado',
+              stockDeducted: false,
+              creditNoteNumber,
+              fechaNotaCredito: getFormattedNow(),
+              motivoNotaCredito: 'Anulación contable mediante Nota Crédito con retorno a inventario',
+            }
+          : o
+      );
+    } else {
+      // Solo pedidos en borrador (Pendientes sin factura emitida) se eliminan físicamente
+      db.orders = db.orders.filter((o) => o.id !== id);
+      db.notifications = db.notifications.filter((n) => n.orderId !== id);
+    }
 
     const saved = await writeDbAsync(db);
     return NextResponse.json({
       success: true,
       products: saved.products,
       orders: saved.orders,
+      storeConfig: sanitizePublicStoreConfig(saved.storeConfig),
       notifications: saved.notifications,
     });
   } catch (err) {

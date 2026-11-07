@@ -181,11 +181,11 @@ export function isStockCommittedState(estado: EstadoPedido): boolean {
 
 export function getInitialDb(): ServerDatabase {
   return {
-    products: JSON.parse(JSON.stringify(INITIAL_PRODUCTS)),
-    orders: JSON.parse(JSON.stringify(INITIAL_ORDERS)),
-    storeConfig: JSON.parse(JSON.stringify(DEFAULT_STORE_CONFIG)),
-    plugins: JSON.parse(JSON.stringify(INITIAL_PLUGINS)),
-    notifications: JSON.parse(JSON.stringify(INITIAL_NOTIFICATIONS)),
+    products: structuredClone(INITIAL_PRODUCTS),
+    orders: structuredClone(INITIAL_ORDERS),
+    storeConfig: structuredClone(DEFAULT_STORE_CONFIG),
+    plugins: structuredClone(INITIAL_PLUGINS),
+    notifications: structuredClone(INITIAL_NOTIFICATIONS),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -350,7 +350,7 @@ function enqueueMySqlWrite(db: ServerDatabase): Promise<void> {
 
 export function readDb(): ServerDatabase {
   if (globalForDb.__lasantaMemoryCache) {
-    return JSON.parse(JSON.stringify(globalForDb.__lasantaMemoryCache));
+    return structuredClone(globalForDb.__lasantaMemoryCache);
   }
 
   for (const candidatePath of resolveDbFilePaths()) {
@@ -360,7 +360,7 @@ export function readDb(): ServerDatabase {
         const parsed = JSON.parse(raw) as Partial<ServerDatabase>;
         const loaded = normalizeLoadedDb(parsed);
         globalForDb.__lasantaMemoryCache = loaded;
-        return JSON.parse(JSON.stringify(loaded));
+        return structuredClone(loaded);
       }
     } catch (err) {
       console.error(`Error reading DB mirror at ${candidatePath}:`, err);
@@ -397,7 +397,7 @@ export async function readDbAsync(): Promise<ServerDatabase> {
         });
         globalForDb.__lasantaMemoryCache = loaded;
         globalForDb.__lasantaMysqlHydrated = true;
-        return JSON.parse(JSON.stringify(loaded));
+        return structuredClone(loaded);
       } else {
         // Seed MySQL database from existing mirror or initial state
         const seed = readDb();
@@ -420,7 +420,7 @@ export function writeDb(db: ServerDatabase): ServerDatabase {
     ...db,
     updatedAt: new Date().toISOString(),
   };
-  globalForDb.__lasantaMemoryCache = JSON.parse(JSON.stringify(updated));
+  globalForDb.__lasantaMemoryCache = structuredClone(updated);
   writeDiskMirror(updated);
 
   if (isMySqlConfigured()) {
@@ -437,7 +437,7 @@ export async function writeDbAsync(db: ServerDatabase): Promise<ServerDatabase> 
     ...db,
     updatedAt: new Date().toISOString(),
   };
-  globalForDb.__lasantaMemoryCache = JSON.parse(JSON.stringify(updated));
+  globalForDb.__lasantaMemoryCache = structuredClone(updated);
   writeDiskMirror(updated);
 
   if (isMySqlConfigured()) {
@@ -457,7 +457,7 @@ export function reconcileStockItems(
   newItems: CartItem[],
   newDeducted: boolean
 ): { success: boolean; products: Producto[]; errorMessage?: string } {
-  const nextProducts: Producto[] = JSON.parse(JSON.stringify(products));
+  const nextProducts: Producto[] = structuredClone(products);
 
   // 1. If old items were deducted, restore them first to get the available baseline
   if (oldDeducted) {

@@ -263,7 +263,7 @@ export function POSDashboard({ onBackToStore }: POSDashboardProps) {
     setEditDir(ord.clienteDireccion);
     setEditTransportadora(ord.transportadora || '');
     setEditGuia(ord.guiaSeguimiento || '');
-    setEditItems(JSON.parse(JSON.stringify(ord.items)));
+    setEditItems(structuredClone(ord.items));
     setEditEnvio(ord.costoEnvio || 0);
     setEditDescuento(ord.descuentoManual || 0);
     setEditMetodoPago(
@@ -349,10 +349,15 @@ export function POSDashboard({ onBackToStore }: POSDashboardProps) {
 
   const handleConfirmDeleteInvoice = () => {
     if (!invoiceToDelete) return;
+    const isBilled = Boolean(invoiceToDelete.invoiceNumber);
     const label = invoiceToDelete.invoiceNumber || invoiceToDelete.orderNumber;
     deleteOrder(invoiceToDelete.id);
     setInvoiceToDelete(null);
-    showToast(`Factura ${label} eliminada y stock restituido al inventario.`);
+    showToast(
+      isBilled
+        ? `Nota Crédito oficial emitida para ${label} y stock restituido al inventario.`
+        : `Orden borrador ${label} eliminada correctamente.`
+    );
   };
 
   // Filtered Invoices List
@@ -603,6 +608,11 @@ export function POSDashboard({ onBackToStore }: POSDashboardProps) {
                             >
                               {inv.estado}
                             </span>
+                            {inv.creditNoteNumber && (
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-red-600 text-white">
+                                {inv.creditNoteNumber}
+                              </span>
+                            )}
                             <span className="text-[10px] font-semibold text-zinc-500 bg-white px-2 py-0.5 rounded-full">
                               {inv.origen}
                             </span>
@@ -1339,10 +1349,14 @@ export function POSDashboard({ onBackToStore }: POSDashboardProps) {
             </div>
             <div>
               <h3 className="text-base font-bold text-[#111111]">
-                ¿Eliminar {invoiceToDelete.invoiceNumber || invoiceToDelete.orderNumber}?
+                {invoiceToDelete.invoiceNumber
+                  ? `¿Emitir Nota Crédito para ${invoiceToDelete.invoiceNumber}?`
+                  : `¿Eliminar borrador ${invoiceToDelete.orderNumber}?`}
               </h3>
               <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
-                Esta acción anulará el registro y devolverá automáticamente todas las prendas al stock de inventario.
+                {invoiceToDelete.invoiceNumber
+                  ? 'Por normativa contable (DIAN / Odoo ERP), las facturas en firme no se borran físicamente: se emitirá una Nota Crédito oficial (NC-XXXX), pasará a estado Cancelado y se devolverá el stock a bodega.'
+                  : 'Este pedido en borrador aún no tiene factura fiscal emitida y será retirado del listado.'}
               </p>
             </div>
             <div className="flex gap-2">
@@ -1358,7 +1372,7 @@ export function POSDashboard({ onBackToStore }: POSDashboardProps) {
                 onClick={handleConfirmDeleteInvoice}
                 className="flex-1 py-3 rounded-full bg-red-600 text-white font-bold text-xs hover:bg-red-700"
               >
-                Sí, Eliminar
+                {invoiceToDelete.invoiceNumber ? 'Emitir Nota Crédito' : 'Eliminar Borrador'}
               </button>
             </div>
           </div>
