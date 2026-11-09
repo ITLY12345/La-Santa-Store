@@ -101,9 +101,7 @@ export function ProductCard({ producto, onSelect }: ProductCardProps) {
             src={currentImg}
             alt={producto.nombre}
             referrerPolicy="no-referrer"
-            className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 ${
-              isOutOfStock ? 'grayscale opacity-50' : ''
-            }`}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
           <Image
@@ -111,9 +109,7 @@ export function ProductCard({ producto, onSelect }: ProductCardProps) {
             alt={producto.nombre}
             fill
             sizes="(max-width: 768px) 50vw, 33vw"
-            className={`object-cover transition-transform duration-500 group-hover:scale-105 ${
-              isOutOfStock ? 'grayscale opacity-50' : ''
-            }`}
+            className="object-cover transition-transform duration-500 group-hover:scale-105"
             referrerPolicy="no-referrer"
           />
         )}
