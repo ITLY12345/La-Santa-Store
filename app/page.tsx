@@ -304,37 +304,45 @@ export default function Home() {
             </div>
 
             {/* Clean Cutout / Editorial Product Preview */}
-            <div
-              onClick={() => {
-                if (featuredHeroProduct) setSelectedProduct(featuredHeroProduct);
-              }}
-              className="hidden sm:flex items-center gap-3 bg-white p-3 rounded-[24px] shadow-sm border border-zinc-100 cursor-pointer group shrink-0 hover:shadow-md transition"
-            >
-              <div className="relative w-24 h-28 rounded-2xl overflow-hidden bg-[#F5F5F7] shrink-0">
-                <Image
-                  src={
-                    featuredHeroProduct?.imagenes[0] ||
-                    'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=800&q=80'
-                  }
-                  alt={featuredHeroProduct?.nombre || 'Colección Destacada'}
-                  fill
-                  sizes="96px"
-                  className="object-cover group-hover:scale-105 transition-transform duration-500"
-                  referrerPolicy="no-referrer"
-                />
+            {!isHydrated ? (
+              <div className="hidden sm:flex items-center gap-3 bg-white p-3 rounded-[24px] shadow-sm border border-zinc-100 shrink-0">
+                <div className="w-24 h-28 rounded-2xl bg-[#F5F5F7] animate-pulse shrink-0" />
+                <div className="pr-2 space-y-2 w-28">
+                  <div className="h-2.5 w-14 bg-[#F5F5F7] rounded animate-pulse" />
+                  <div className="h-3.5 w-24 bg-[#F5F5F7] rounded animate-pulse" />
+                  <div className="h-3.5 w-16 bg-[#F5F5F7] rounded animate-pulse" />
+                </div>
               </div>
-              <div className="pr-2 space-y-1 max-w-[140px]">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
-                  Destacado
-                </span>
-                <p className="text-xs font-bold text-[#111111] line-clamp-2 leading-snug">
-                  {featuredHeroProduct?.nombre || 'Camiseta Oversize Heavyweight'}
-                </p>
-                <p className="text-xs font-extrabold text-[#111111] pt-0.5">
-                  {formatCOP(featuredHeroProduct?.precio_base || 95000)}
-                </p>
+            ) : featuredHeroProduct ? (
+              <div
+                onClick={() => setSelectedProduct(featuredHeroProduct)}
+                className="hidden sm:flex items-center gap-3 bg-white p-3 rounded-[24px] shadow-sm border border-zinc-100 cursor-pointer group shrink-0 hover:shadow-md transition"
+              >
+                <div className="relative w-24 h-28 rounded-2xl overflow-hidden bg-[#F5F5F7] shrink-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={
+                      featuredHeroProduct.imagenes[0] ||
+                      '/assets/brand/logo-la-santa.png'
+                    }
+                    alt={featuredHeroProduct.nombre}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                </div>
+                <div className="pr-2 space-y-1 max-w-[140px]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
+                    Destacado
+                  </span>
+                  <p className="text-xs font-bold text-[#111111] line-clamp-2 leading-snug">
+                    {featuredHeroProduct.nombre}
+                  </p>
+                  <p className="text-xs font-extrabold text-[#111111] pt-0.5">
+                    {formatCOP(featuredHeroProduct.precio_base)}
+                  </p>
+                </div>
               </div>
-            </div>
+            ) : null}
           </section>
         )}
 

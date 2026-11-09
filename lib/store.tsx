@@ -182,7 +182,7 @@ function isStockCommitted(estado: EstadoPedido): boolean {
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [products, setProducts] = useState<Producto[]>(INITIAL_PRODUCTS);
+  const [products, setProducts] = useState<Producto[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [myOrderIds, setMyOrderIds] = useState<string[]>([]);
@@ -255,6 +255,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 sessionStorage.removeItem(key);
               }
 
+              const storedProducts = localStorage.getItem(STORAGE_KEY_PRODUCTS);
+              if (storedProducts) {
+                const parsedProducts = JSON.parse(storedProducts);
+                if (Array.isArray(parsedProducts) && parsedProducts.length > 0) {
+                  setProducts(parsedProducts);
+                  setIsHydrated(true);
+                }
+              }
               const storedCart = localStorage.getItem(STORAGE_KEY_CART);
               if (storedCart) setCart(JSON.parse(storedCart));
               const storedFavs = localStorage.getItem(STORAGE_KEY_FAVORITES);
@@ -269,8 +277,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               }
             } catch (e) {
               console.error(e);
-            } finally {
-              setIsHydrated(true);
             }
           })
         : 0;
@@ -357,6 +363,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           } catch (e) {
             console.error(e);
           }
+        }
+      } finally {
+        if (isInitial && isMounted) {
+          setIsHydrated(true);
         }
       }
     };
