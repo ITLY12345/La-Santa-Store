@@ -1,14 +1,6 @@
 import type { Metadata, Viewport } from 'next';
-import { Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 import { StoreProvider } from '@/lib/store';
-
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
-  display: 'swap',
-  variable: '--font-jakarta',
-});
 
 export const metadata: Metadata = {
   metadataBase: new URL(
@@ -70,10 +62,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" className={`${jakarta.variable} scroll-smooth`}>
-      <body
-        className={`${jakarta.className} min-h-screen bg-white text-[#111111] antialiased selection:bg-[#111111] selection:text-white`}
-      >
+    <html lang="es" className="scroll-smooth">
+      <body className="min-h-screen bg-white text-[#111111] antialiased selection:bg-[#111111] selection:text-white">
         <StoreProvider>{children}</StoreProvider>
       </body>
     </html>

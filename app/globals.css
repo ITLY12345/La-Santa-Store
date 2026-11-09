@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+@layer base {
+  html,
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji",
+      "Segoe UI Emoji";
+  }
+}
+
 @layer utilities {
   .shadow-soft {
     box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.06);
