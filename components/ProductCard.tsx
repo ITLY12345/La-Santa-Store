@@ -41,7 +41,7 @@ export function ProductCard({ producto, onSelect }: ProductCardProps) {
     new Set(
       producto.variantes
         .filter((v) => v.stock_disponible > 0)
-        .map((v) => v.talla)
+        .map((v) => v.talla.replace(/\s+/g, ' ').trim())
     )
   );
 

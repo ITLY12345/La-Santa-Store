@@ -73,34 +73,23 @@ function ProductDetailContent({
   }, [producto]);
 
   const allColors = useMemo(() => {
-    return Array.from(new Set(producto.variantes.map((v) => v.color)));
+    return Array.from(
+      new Set(producto.variantes.map((v) => v.color.trim()).filter(Boolean))
+    );
   }, [producto]);
 
   const [selectedColor, setSelectedColor] = useState<string>(
-    initialVariant ? initialVariant.color : allColors[0] || ''
+    initialVariant ? initialVariant.color.trim() : allColors[0] || ''
   );
-
-  const availableDisenos = useMemo(() => {
-    const matching = producto.variantes.filter(
-      (v) => v.color === selectedColor
-    );
-    return Array.from(new Set(matching.map((v) => v.diseno_motivo)));
-  }, [producto, selectedColor]);
-
-  const [userDiseno, setUserDiseno] = useState<string>(
-    initialVariant ? initialVariant.diseno_motivo : ''
-  );
-
-  const selectedDiseno = availableDisenos.includes(userDiseno)
-    ? userDiseno
-    : availableDisenos[0] || '';
 
   const allProductSizes = useMemo(() => {
-    return Array.from(new Set(producto.variantes.map((v) => v.talla)));
+    return Array.from(
+      new Set(producto.variantes.map((v) => v.talla.trim()).filter(Boolean))
+    );
   }, [producto]);
 
   const [selectedTalla, setSelectedTalla] = useState<string>(
-    initialVariant ? initialVariant.talla : allProductSizes[0] || ''
+    initialVariant ? initialVariant.talla.trim() : allProductSizes[0] || ''
   );
 
   const [cantidad, setCantidad] = useState<number>(1);
@@ -110,25 +99,37 @@ function ProductDetailContent({
   } | null>(null);
 
   const currentVariant = useMemo(() => {
-    return producto.variantes.find(
+    const exactMatch = producto.variantes.find(
       (v) =>
-        v.color === selectedColor &&
-        v.diseno_motivo === selectedDiseno &&
-        v.talla === selectedTalla
+        v.color.trim().toLowerCase() === selectedColor.trim().toLowerCase() &&
+        v.talla.trim().toLowerCase() === selectedTalla.trim().toLowerCase()
     );
-  }, [producto, selectedColor, selectedDiseno, selectedTalla]);
+    if (exactMatch) return exactMatch;
+    // Fallback if product has a single size/variant under a different color label
+    return producto.variantes.find(
+      (v) => v.talla.trim().toLowerCase() === selectedTalla.trim().toLowerCase()
+    );
+  }, [producto, selectedColor, selectedTalla]);
 
   const stockActual = currentVariant ? currentVariant.stock_disponible : 0;
   const isCurrentCombinationOutOfStock = stockActual <= 0;
 
   const getStockForSize = (size: string): number => {
-    const v = producto.variantes.find(
+    const matching = producto.variantes.filter(
       (item) =>
-        item.color === selectedColor &&
-        item.diseno_motivo === selectedDiseno &&
-        item.talla === size
+        item.color.trim().toLowerCase() === selectedColor.trim().toLowerCase() &&
+        item.talla.trim().toLowerCase() === size.trim().toLowerCase()
     );
-    return v ? v.stock_disponible : 0;
+    if (matching.length > 0) {
+      return matching.reduce((acc, item) => acc + item.stock_disponible, 0);
+    }
+    const fallbackBySize = producto.variantes.filter(
+      (item) => item.talla.trim().toLowerCase() === size.trim().toLowerCase()
+    );
+    if (allColors.length <= 1 && fallbackBySize.length > 0) {
+      return fallbackBySize.reduce((acc, item) => acc + item.stock_disponible, 0);
+    }
+    return 0;
   };
 
   const handleAddToCart = () => {
@@ -331,7 +332,29 @@ function ProductDetailContent({
                 <button
                   key={color}
                   type="button"
-                  onClick={() => setSelectedColor(color)}
+                  onClick={() => {
+                    setSelectedColor(color);
+                    const hasCurrentSize = producto.variantes.some(
+                      (v) =>
+                        v.color.trim().toLowerCase() === color.trim().toLowerCase() &&
+                        v.talla.trim().toLowerCase() === selectedTalla.trim().toLowerCase() &&
+                        v.stock_disponible > 0
+                    );
+                    if (!hasCurrentSize) {
+                      const firstAvailableForColor =
+                        producto.variantes.find(
+                          (v) =>
+                            v.color.trim().toLowerCase() === color.trim().toLowerCase() &&
+                            v.stock_disponible > 0
+                        ) ||
+                        producto.variantes.find(
+                          (v) => v.color.trim().toLowerCase() === color.trim().toLowerCase()
+                        );
+                      if (firstAvailableForColor) {
+                        setSelectedTalla(firstAvailableForColor.talla.trim());
+                      }
+                    }
+                  }}
                   className={`px-4 py-2 rounded-full text-xs font-semibold transition-all active:scale-95 ${
                     isSelected
                       ? 'bg-[#111111] text-white'
@@ -345,36 +368,7 @@ function ProductDetailContent({
           </div>
         </div>
 
-        {/* 2. Selector de Diseño / Acabado */}
-        {availableDisenos.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between text-xs mb-2">
-              <span className="font-bold text-[#111111]">Edición</span>
-              <span className="text-zinc-500">{selectedDiseno}</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {availableDisenos.map((diseno) => {
-                const isSelected = selectedDiseno === diseno;
-                return (
-                  <button
-                    key={diseno}
-                    type="button"
-                    onClick={() => setUserDiseno(diseno)}
-                    className={`px-4 py-2 rounded-full text-xs font-semibold transition-all active:scale-95 ${
-                      isSelected
-                        ? 'bg-[#111111] text-white'
-                        : 'bg-[#F5F5F7] text-[#111111] hover:bg-zinc-200/80'
-                    }`}
-                  >
-                    {diseno}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* 3. Selector de Talla Interdependiente */}
+        {/* 2. Selector de Talla */}
         <div>
           <div className="flex items-center justify-between text-xs mb-2">
             <span className="font-bold text-[#111111]">Seleccionar Talla</span>

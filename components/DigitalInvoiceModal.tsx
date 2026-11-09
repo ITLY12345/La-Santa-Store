@@ -243,7 +243,7 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
                         <p className="font-bold text-[#111111]">{it.nombre}</p>
                         <p className="text-[11px] text-zinc-500">
                           Talla: <strong className="text-[#111111]">{it.talla}</strong> · Color:{' '}
-                          {it.color} · {it.diseno_motivo}
+                          {it.color}
                         </p>
                       </td>
                       <td className="py-2.5 px-2 text-right text-zinc-600 tabular-nums">

@@ -259,7 +259,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               if (storedProducts) {
                 const parsedProducts = JSON.parse(storedProducts);
                 if (Array.isArray(parsedProducts) && parsedProducts.length > 0) {
-                  setProducts(parsedProducts);
+                  const cleaned = parsedProducts.map((p: Producto) => ({
+                    ...p,
+                    variantes: Array.isArray(p.variantes)
+                      ? p.variantes.map((v) => ({ ...v, diseno_motivo: '' }))
+                      : [],
+                  }));
+                  setProducts(cleaned);
                   setIsHydrated(true);
                 }
               }
@@ -308,8 +314,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (!isMounted) return;
 
         if (Array.isArray(data.products)) {
-          setProducts(data.products);
-          localStorage.setItem(STORAGE_KEY_PRODUCTS, JSON.stringify(data.products));
+          const cleanedProducts = data.products.map((p: Producto) => ({
+            ...p,
+            variantes: Array.isArray(p.variantes)
+              ? p.variantes.map((v) => ({ ...v, diseno_motivo: '' }))
+              : [],
+          }));
+          setProducts(cleanedProducts);
+          localStorage.setItem(STORAGE_KEY_PRODUCTS, JSON.stringify(cleanedProducts));
         }
 
         if (data.storeConfig) {

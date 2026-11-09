@@ -66,14 +66,17 @@ export async function POST(req: NextRequest) {
       },
       variantes:
         Array.isArray(body.variantes) && body.variantes.length > 0
-          ? body.variantes
+          ? body.variantes.map((v: Producto['variantes'][number]) => ({
+              ...v,
+              diseno_motivo: '',
+            }))
           : [
               {
                 id_variante: `var-${Date.now()}-1`,
                 sku: `SKU-${Math.floor(1000 + Math.random() * 9000)}`,
                 talla: 'Única',
-                color: 'Negro Mate',
-                diseno_motivo: 'Edición Oficial',
+                color: 'Negro',
+                diseno_motivo: '',
                 stock_disponible: 10,
               },
             ],
@@ -175,6 +178,12 @@ export async function PUT(req: NextRequest) {
       const updatedProd: Producto = {
         ...body.product,
         imagenes: imgCheck.sanitized,
+        variantes: Array.isArray(body.product.variantes)
+          ? body.product.variantes.map((v: Producto['variantes'][number]) => ({
+              ...v,
+              diseno_motivo: '',
+            }))
+          : [],
       };
       db.products = db.products.map((p) => (p.id === updatedProd.id ? updatedProd : p));
       const saved = await writeDbAsync(db);

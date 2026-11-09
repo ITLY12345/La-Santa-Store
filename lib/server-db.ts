@@ -163,6 +163,9 @@ function normalizeLoadedDb(parsed: Partial<ServerDatabase>): ServerDatabase {
           : disp + res;
       return {
         ...v,
+        talla: (v.talla || '').replace(/\s+/g, ' ').trim(),
+        color: (v.color || '').replace(/\s+/g, ' ').trim(),
+        diseno_motivo: '',
         stock_fisico: fis,
         stock_reservado: res,
         stock_disponible: disp,
@@ -338,7 +341,7 @@ async function persistToMySqlTransactional(db: ServerDatabase): Promise<void> {
             (v.sku || v.id_variante).slice(0, 64),
             v.talla.slice(0, 32),
             v.color.slice(0, 64),
-            (v.diseno_motivo || 'Estándar').slice(0, 120),
+            '',
             fis,
             res,
           ]

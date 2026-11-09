@@ -1926,19 +1926,21 @@ export function AdminDashboard() {
                   </span>
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
+                      const prevColor =
+                        prodVariantes[prodVariantes.length - 1]?.color || 'Negro';
                       setProdVariantes([
                         ...prodVariantes,
                         {
-                          id_variante: `var-${prodReferencia || 'item'}-${prodVariantes.length + 1}`,
+                          id_variante: `var-${prodReferencia || 'item'}-${Date.now()}-${prodVariantes.length + 1}`,
                           sku: `SKU-${String(prodVariantes.length + 1).padStart(3, '0')}`,
                           talla: prodCategoria === 'Chanclas' ? '40' : 'L',
-                          color: 'Negro Mate',
-                          diseno_motivo: 'Edición Oficial',
+                          color: prevColor,
+                          diseno_motivo: '',
                           stock_disponible: 8,
                         },
-                      ])
-                    }
+                      ]);
+                    }}
                     className="px-3 py-1 rounded-full bg-[#111111] text-white text-[11px] font-bold"
                   >
                     + Añadir Variante
