@@ -1667,7 +1667,7 @@ export function AdminDashboard() {
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleSaveProductModal}
-            className="w-full max-w-2xl bg-white border border-zinc-200 rounded-3xl p-5 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] overflow-y-auto cursor-default"
+            className="w-full max-w-3xl bg-white border border-zinc-200 rounded-3xl p-6 sm:p-8 space-y-5 shadow-2xl max-h-[92vh] overflow-y-auto cursor-default"
           >
             <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
               <div>

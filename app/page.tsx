@@ -662,24 +662,24 @@ export default function Home() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-white rounded-[32px] p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto cursor-default"
+            className="w-full max-w-lg sm:max-w-xl bg-white rounded-[36px] p-6 sm:p-8 space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto cursor-default"
           >
-            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-4">
               <div>
-                <h3 className="text-base font-bold text-[#111111]">
+                <h3 className="text-lg sm:text-xl font-black tracking-tight text-[#111111]">
                   Filtros de Tienda
                 </h3>
-                <p className="text-[11px] text-zinc-500">
-                  Filtra por categoría, talla, color y orden de precio
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  Filtra por categoría, talla disponible, color y orden de precio
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowFiltersModal(false)}
-                className="w-8 h-8 rounded-full bg-[#F5F5F7] text-[#111111] flex items-center justify-center hover:bg-zinc-200 transition"
+                className="w-10 h-10 rounded-full bg-[#F5F5F7] text-[#111111] flex items-center justify-center hover:bg-zinc-200 transition"
                 aria-label="Cerrar filtros"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 

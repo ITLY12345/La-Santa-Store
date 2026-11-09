@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import Image from 'next/image';
 import { useStore } from '@/lib/store';
 import { formatCOP } from '@/lib/data';
 import { generateWhatsAppMessage } from '@/lib/whatsapp';
@@ -173,17 +172,17 @@ export function CartDrawer({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-md bg-white h-full flex flex-col shadow-2xl overflow-hidden cursor-default"
+        className="relative w-full max-w-lg bg-white h-full flex flex-col shadow-2xl overflow-hidden cursor-default"
       >
         {/* Header */}
-        <div className="p-5 flex items-center justify-between border-b border-zinc-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#F5F5F7] flex items-center justify-center text-[#111111]">
+        <div className="p-6 flex items-center justify-between border-b border-zinc-100">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-full bg-[#111111] flex items-center justify-center text-white">
               <ShoppingBag className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-[#111111]">Mi Bolsa</h2>
-              <p className="text-xs text-zinc-500">
+              <h2 className="text-lg font-black tracking-tight text-[#111111]">Mi Bolsa de Compra</h2>
+              <p className="text-xs font-medium text-zinc-500">
                 {cartTotalCount}{' '}
                 {cartTotalCount === 1
                   ? 'prenda seleccionada'
@@ -195,7 +194,7 @@ export function CartDrawer({
             type="button"
             onClick={onClose}
             aria-label="Cerrar bolsa"
-            className="w-9 h-9 rounded-full bg-[#F5F5F7] flex items-center justify-center text-[#111111] hover:bg-zinc-200 transition"
+            className="w-10 h-10 rounded-full bg-[#F5F5F7] flex items-center justify-center text-[#111111] hover:bg-zinc-200 transition"
           >
             <X className="w-4 h-4" />
           </button>
@@ -261,13 +260,13 @@ export function CartDrawer({
                     key={item.cartItemId}
                     className="p-3 rounded-2xl bg-[#F5F5F7] flex gap-3.5 items-center"
                   >
-                    <div className="relative w-18 h-20 rounded-xl overflow-hidden bg-white shrink-0">
-                      <Image
+                    <div className="relative w-20 h-22 rounded-xl overflow-hidden bg-white shrink-0 border border-zinc-200/70">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
                         src={item.imagen}
                         alt={item.nombre}
-                        fill
-                        className="object-cover"
                         referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
                       />
                     </div>
 
