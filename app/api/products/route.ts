@@ -12,7 +12,7 @@ function validateImagesArray(imagenes: unknown): { valid: boolean; sanitized: st
     return { valid: true, sanitized: [defaultImg] };
   }
   const sanitized: string[] = [];
-  for (const raw of imagenes.slice(0, 6)) {
+  for (const raw of imagenes.slice(0, 8)) {
     if (typeof raw !== 'string' || !raw.trim()) continue;
     const trimmed = raw.trim();
     if (trimmed.length > MAX_IMAGE_STRING_LENGTH) {

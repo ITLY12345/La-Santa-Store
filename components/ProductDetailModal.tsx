@@ -11,6 +11,8 @@ import {
   ShoppingBag,
   AlertCircle,
   ShieldAlert,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 interface ProductDetailModalProps {
@@ -31,8 +33,43 @@ function ProductDetailContent({
   const { addToCart, favorites, toggleFavorite } = useStore();
   const isFavorite = favorites.includes(producto.id);
 
+  const galleryImages = useMemo(() => {
+    const valid = (producto.imagenes || []).filter(
+      (img) => typeof img === 'string' && img.trim().length > 0
+    );
+    return valid.length > 0
+      ? valid
+      : [
+          'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85',
+        ];
+  }, [producto.imagenes]);
+
+  const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+  const safeImageIdx =
+    activeImageIdx < galleryImages.length ? activeImageIdx : 0;
+  const activeImg = galleryImages[safeImageIdx];
+  const isCustomOrDataImg =
+    activeImg.startsWith('data:') ||
+    (!activeImg.includes('images.unsplash.com') &&
+      !activeImg.includes('picsum.photos'));
+
+  const handlePrevImage = () => {
+    setActiveImageIdx(
+      (prev) => (prev - 1 + galleryImages.length) % galleryImages.length
+    );
+  };
+
+  const handleNextImage = () => {
+    setActiveImageIdx((prev) => (prev + 1) % galleryImages.length);
+  };
+
   const initialVariant = useMemo(() => {
-    return producto.variantes.find((v) => v.stock_disponible > 0) || producto.variantes[0];
+    return (
+      producto.variantes.find((v) => v.stock_disponible > 0) ||
+      producto.variantes[0]
+    );
   }, [producto]);
 
   const allColors = useMemo(() => {
@@ -44,7 +81,9 @@ function ProductDetailContent({
   );
 
   const availableDisenos = useMemo(() => {
-    const matching = producto.variantes.filter((v) => v.color === selectedColor);
+    const matching = producto.variantes.filter(
+      (v) => v.color === selectedColor
+    );
     return Array.from(new Set(matching.map((v) => v.diseno_motivo)));
   }, [producto, selectedColor]);
 
@@ -92,13 +131,6 @@ function ProductDetailContent({
     return v ? v.stock_disponible : 0;
   };
 
-  const primaryImg =
-    producto.imagenes[0] ||
-    'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85';
-  const isCustomOrDataImg =
-    primaryImg.startsWith('data:') ||
-    (!primaryImg.includes('images.unsplash.com') && !primaryImg.includes('picsum.photos'));
-
   const handleAddToCart = () => {
     if (!currentVariant || isCurrentCombinationOutOfStock) {
       setFeedbackMsg({
@@ -120,7 +152,7 @@ function ProductDetailContent({
       precio: producto.precio_base,
       cantidad,
       stockMaximo: currentVariant.stock_disponible,
-      imagen: primaryImg,
+      imagen: galleryImages[0],
     });
 
     if (result.success) {
@@ -144,8 +176,18 @@ function ProductDetailContent({
       onClick={(e) => e.stopPropagation()}
       className="w-full sm:max-w-md max-h-[94vh] bg-white border border-zinc-200 rounded-t-[36px] sm:rounded-[36px] flex flex-col overflow-hidden shadow-2xl"
     >
-      {/* Top Studio Image Stage (#F5F5F7 1:1 Dribbble #27573251) */}
-      <div className="relative h-72 w-full bg-[#F5F5F7] shrink-0">
+      {/* Top Studio Multi-Photo Stage */}
+      <div
+        className="relative h-80 w-full bg-[#F5F5F7] shrink-0 select-none"
+        onTouchStart={(e) => setTouchStartX(e.touches[0].clientX)}
+        onTouchEnd={(e) => {
+          if (touchStartX === null || galleryImages.length <= 1) return;
+          const deltaX = e.changedTouches[0].clientX - touchStartX;
+          if (deltaX > 40) handlePrevImage();
+          else if (deltaX < -40) handleNextImage();
+          setTouchStartX(null);
+        }}
+      >
         {/* Top Floating Circular White Buttons */}
         <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between">
           <button
@@ -157,6 +199,12 @@ function ProductDetailContent({
             <ArrowLeft className="w-4 h-4" />
           </button>
 
+          {galleryImages.length > 1 && (
+            <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[11px] font-bold tabular-nums">
+              Foto {safeImageIdx + 1} / {galleryImages.length}
+            </span>
+          )}
+
           <button
             type="button"
             onClick={() => toggleFavorite(producto.id)}
@@ -165,24 +213,46 @@ function ProductDetailContent({
           >
             <Heart
               className={`w-4 h-4 ${
-                isFavorite ? 'fill-[#111111] text-[#111111]' : 'text-[#111111]'
+                isFavorite ? 'fill-rose-500 text-rose-500' : 'text-[#111111]'
               }`}
             />
           </button>
         </div>
 
+        {/* Left / Right Photo Arrows */}
+        {galleryImages.length > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={handlePrevImage}
+              aria-label="Foto anterior"
+              className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-[#111111] shadow-md flex items-center justify-center transition active:scale-90"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={handleNextImage}
+              aria-label="Foto siguiente"
+              className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-[#111111] shadow-md flex items-center justify-center transition active:scale-90"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </>
+        )}
+
         {isCustomOrDataImg ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={primaryImg}
-            alt={producto.nombre}
+            src={activeImg}
+            alt={`${producto.nombre} - Foto ${safeImageIdx + 1}`}
             referrerPolicy="no-referrer"
             className="w-full h-full object-cover"
           />
         ) : (
           <Image
-            src={primaryImg}
-            alt={producto.nombre}
+            src={activeImg}
+            alt={`${producto.nombre} - Foto ${safeImageIdx + 1}`}
             fill
             className="object-cover"
             referrerPolicy="no-referrer"
@@ -191,7 +261,33 @@ function ProductDetailContent({
       </div>
 
       {/* Scrollable White Sheet Details */}
-      <div className="flex-1 overflow-y-auto px-6 pt-6 pb-4 space-y-5 bg-white rounded-t-[32px] -mt-6 relative z-10">
+      <div className="flex-1 overflow-y-auto px-6 pt-5 pb-4 space-y-5 bg-white rounded-t-[32px] -mt-6 relative z-10">
+        {/* Interactive Thumbnail Strip (when multiple photos exist) */}
+        {galleryImages.length > 1 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            {galleryImages.map((imgUrl, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => setActiveImageIdx(idx)}
+                className={`relative w-14 h-14 rounded-2xl overflow-hidden shrink-0 border-2 transition-all ${
+                  idx === safeImageIdx
+                    ? 'border-[#111111] scale-105 shadow-xs'
+                    : 'border-transparent opacity-60 hover:opacity-100'
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imgUrl}
+                  alt={`Miniatura ${idx + 1}`}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                />
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Title, Category & Price Header */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs text-zinc-500">
@@ -202,7 +298,9 @@ function ProductDetailContent({
               · {producto.marca_motivo}
             </span>
             <span className="tabular-nums text-zinc-500">
-              {isCurrentCombinationOutOfStock ? 'Agotado' : `${stockActual} en stock`}
+              {isCurrentCombinationOutOfStock
+                ? 'Agotado'
+                : `${stockActual} en stock`}
             </span>
           </div>
 
@@ -215,7 +313,9 @@ function ProductDetailContent({
             </span>
           </div>
 
-          <p className="text-xs text-zinc-500 leading-relaxed pt-1">{producto.descripcion}</p>
+          <p className="text-xs text-zinc-500 leading-relaxed pt-1">
+            {producto.descripcion}
+          </p>
         </div>
 
         {/* 1. Selector de Color */}
@@ -333,13 +433,16 @@ function ProductDetailContent({
               <span className="text-red-600 font-semibold flex items-center gap-1.5">
                 <ShieldAlert className="w-4 h-4" /> Sin existencias
               </span>
-            ) : stockActual <= (producto.configuracion_alertas?.stock_minimo_alerta ?? 3) ? (
+            ) : stockActual <=
+              (producto.configuracion_alertas?.stock_minimo_alerta ?? 3) ? (
               <span className="text-[#111111] font-semibold flex items-center gap-1.5">
-                <AlertCircle className="w-4 h-4" /> Últimas {stockActual} unidades
+                <AlertCircle className="w-4 h-4" /> Últimas {stockActual}{' '}
+                unidades
               </span>
             ) : (
               <span className="text-zinc-700 font-medium flex items-center gap-1.5">
-                <Check className="w-4 h-4 text-[#111111]" /> Disponible ({stockActual} un.)
+                <Check className="w-4 h-4 text-[#111111]" /> Disponible (
+                {stockActual} un.)
               </span>
             )}
           </div>
@@ -359,7 +462,9 @@ function ProductDetailContent({
               </span>
               <button
                 type="button"
-                onClick={() => setCantidad((prev) => Math.min(stockActual, prev + 1))}
+                onClick={() =>
+                  setCantidad((prev) => Math.min(stockActual, prev + 1))
+                }
                 disabled={cantidad >= stockActual}
                 className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold text-[#111111] disabled:opacity-30"
               >
@@ -392,10 +497,12 @@ function ProductDetailContent({
         )}
       </div>
 
-      {/* Bottom Sticky Action Bar (1:1 Dribbble #27573251 White Bar + #111111 Pill CTA) */}
+      {/* Bottom Sticky Action Bar */}
       <div className="p-4 border-t border-zinc-100 bg-white flex items-center justify-between gap-4">
         <div>
-          <span className="text-[11px] text-zinc-400 font-medium block">Precio Total</span>
+          <span className="text-[11px] text-zinc-400 font-medium block">
+            Precio Total
+          </span>
           <span className="text-lg font-extrabold text-[#111111] tabular-nums">
             {formatCOP(producto.precio_base * cantidad)}
           </span>
@@ -412,7 +519,9 @@ function ProductDetailContent({
           }`}
         >
           <ShoppingBag className="w-4 h-4" />
-          <span>{isCurrentCombinationOutOfStock ? 'Agotado' : 'Añadir al Carrito'}</span>
+          <span>
+            {isCurrentCombinationOutOfStock ? 'Agotado' : 'Añadir al Carrito'}
+          </span>
         </button>
       </div>
     </div>

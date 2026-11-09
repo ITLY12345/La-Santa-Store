@@ -83,7 +83,8 @@ export function AdminDashboard() {
   const [prodIvaPorcentaje, setProdIvaPorcentaje] = useState<number>(19);
   const [prodAlertaMin, setProdAlertaMin] = useState<number>(4);
   const [prodDescripcion, setProdDescripcion] = useState('');
-  const [prodImagenUrl, setProdImagenUrl] = useState('');
+  const [prodImagenes, setProdImagenes] = useState<string[]>([]);
+  const [prodImagenUrlInput, setProdImagenUrlInput] = useState('');
   const [prodVariantes, setProdVariantes] = useState<Variante[]>([]);
   const [prodModalError, setProdModalError] = useState<string | null>(null);
   const [productToDelete, setProductToDelete] = useState<Producto | null>(null);
@@ -138,29 +139,28 @@ export function AdminDashboard() {
     }
   };
 
-  // Open Product Create / Edit Modal with Photos, COGS & IVA
+  // Open Product Create / Edit Modal with Multi-Photo Gallery, COGS & IVA
   const openCreateProductModal = () => {
     const nextNum = String(products.length + 1).padStart(3, '0');
     setEditingProductId(null);
     setProdReferencia(`REF-${nextNum}`);
     setProdNombre('');
     setProdCategoria('Camisetas');
-    setProdMarca('Colección Cartagena');
+    setProdMarca('Colección Oficial');
     setProdPrecio(95000);
     setProdCostoUnitario(42000);
     setProdIvaPorcentaje(19);
     setProdAlertaMin(4);
     setProdDescripcion('');
-    setProdImagenUrl(
-      'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85'
-    );
+    setProdImagenes([]);
+    setProdImagenUrlInput('');
     setProdVariantes([
       {
         id_variante: `var-new-${nextNum}-1`,
         sku: `SKU-${nextNum}-01`,
         talla: 'M',
         color: 'Negro Mate',
-        diseno_motivo: 'Edición Oficial',
+        diseno_motivo: '',
         stock_disponible: 10,
       },
     ]);
@@ -179,60 +179,118 @@ export function AdminDashboard() {
     setProdIvaPorcentaje(prod.iva_porcentaje ?? 19);
     setProdAlertaMin(prod.configuracion_alertas?.stock_minimo_alerta ?? 4);
     setProdDescripcion(prod.descripcion);
-    setProdImagenUrl(prod.imagenes[0] || '');
+    setProdImagenes(
+      Array.isArray(prod.imagenes) && prod.imagenes.length > 0
+        ? [...prod.imagenes]
+        : []
+    );
+    setProdImagenUrlInput('');
     setProdVariantes(structuredClone(prod.variantes));
     setProdModalError(null);
     setShowProductModal(true);
   };
 
-  // Handle Local Image Upload with Automatic Client-Side WebP Compression (Max 900x900px, ~45KB)
-  const handlePhotoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      setProdModalError('Formato inválido. Selecciona una imagen JPG, PNG o WebP.');
-      return;
-    }
-
-    if (file.size > 8 * 1024 * 1024) {
-      setProdModalError('La fotografía supera el límite de 8 MB. Elige un archivo más liviano.');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result !== 'string') return;
-      const img = new window.Image();
-      img.onload = () => {
-        const MAX_DIM = 900;
-        let width = img.width;
-        let height = img.height;
-        if (width > MAX_DIM || height > MAX_DIM) {
-          if (width > height) {
-            height = Math.round((height * MAX_DIM) / width);
-            width = MAX_DIM;
-          } else {
-            width = Math.round((width * MAX_DIM) / height);
-            height = MAX_DIM;
+  const compressFileToWebp = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      if (!file.type.startsWith('image/')) {
+        reject(new Error('Formato inválido. Selecciona imágenes JPG, PNG o WebP.'));
+        return;
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        reject(new Error(`La foto "${file.name}" supera el límite de 8 MB.`));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('No se pudo leer el archivo de imagen.'));
+      reader.onload = () => {
+        if (typeof reader.result !== 'string') {
+          reject(new Error('Archivo de imagen inválido.'));
+          return;
+        }
+        const img = new window.Image();
+        img.onerror = () => reject(new Error('No se pudo procesar la imagen seleccionada.'));
+        img.onload = () => {
+          const MAX_DIM = 900;
+          let width = img.width;
+          let height = img.height;
+          if (width > MAX_DIM || height > MAX_DIM) {
+            if (width > height) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            } else {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
           }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/webp', 0.8);
-          setProdImagenUrl(compressedDataUrl);
-          setProdModalError(null);
-        } else {
-          setProdImagenUrl(reader.result as string);
-        }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/webp', 0.8));
+          } else {
+            resolve(reader.result as string);
+          }
+        };
+        img.src = reader.result;
       };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
+      reader.readAsDataURL(file);
+    });
+
+  // Handle Multi-Photo Local Upload with Automatic Client-Side WebP Compression (Up to 8 photos)
+  const handlePhotoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    const files = Array.from(fileList);
+    e.target.value = '';
+
+    const remainingSlots = Math.max(0, 8 - prodImagenes.length);
+    if (remainingSlots === 0) {
+      setProdModalError('Ya alcanzaste el máximo de 8 fotografías para este producto.');
+      return;
+    }
+
+    const filesToProcess = files.slice(0, remainingSlots);
+    try {
+      const compressedList: string[] = [];
+      for (const file of filesToProcess) {
+        const webpData = await compressFileToWebp(file);
+        compressedList.push(webpData);
+      }
+      setProdImagenes((prev) => [...prev, ...compressedList].slice(0, 8));
+      setProdModalError(null);
+    } catch (err) {
+      setProdModalError(
+        err instanceof Error ? err.message : 'Error al comprimir las fotografías.'
+      );
+    }
+  };
+
+  const handleAddImageUrl = () => {
+    const cleanUrl = prodImagenUrlInput.trim();
+    if (!cleanUrl) return;
+    if (prodImagenes.length >= 8) {
+      setProdModalError('Máximo 8 fotografías por producto.');
+      return;
+    }
+    setProdImagenes((prev) => [...prev, cleanUrl]);
+    setProdImagenUrlInput('');
+    setProdModalError(null);
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setProdImagenes((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleSetCoverImage = (index: number) => {
+    if (index <= 0 || index >= prodImagenes.length) return;
+    setProdImagenes((prev) => {
+      const next = [...prev];
+      const [chosen] = next.splice(index, 1);
+      return [chosen, ...next];
+    });
   };
 
   const handleSaveProductModal = async (e: React.FormEvent) => {
@@ -248,6 +306,16 @@ export function AdminDashboard() {
       return;
     }
 
+    const finalImages = [...prodImagenes];
+    if (prodImagenUrlInput.trim() && finalImages.length < 8) {
+      finalImages.push(prodImagenUrlInput.trim());
+    }
+    if (finalImages.length === 0) {
+      finalImages.push(
+        'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85'
+      );
+    }
+
     const payload: Omit<Producto, 'id'> = {
       referencia: prodReferencia.trim() || 'REF-GEN',
       nombre: prodNombre.trim(),
@@ -255,11 +323,8 @@ export function AdminDashboard() {
       marca_motivo: prodMarca.trim() || 'Colección Oficial',
       descripcion:
         prodDescripcion.trim() ||
-        'Prenda de diseño minimalista con disponibilidad en tiempo real desde Cartagena de Indias.',
-      imagenes: [
-        prodImagenUrl.trim() ||
-          'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85',
-      ],
+        'Prenda de diseño minimalista con disponibilidad en tiempo real.',
+      imagenes: finalImages.slice(0, 8),
       precio_base: Math.max(0, Number(prodPrecio) || 0),
       costo_unitario: Math.max(0, Number(prodCostoUnitario) || 0),
       iva_porcentaje: Math.max(0, Number(prodIvaPorcentaje ?? 19)),
@@ -762,6 +827,9 @@ export function AdminDashboard() {
                               referrerPolicy="no-referrer"
                               className="w-full h-full object-cover"
                             />
+                            <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/75 text-white text-[9px] font-bold">
+                              {prod.imagenes.length} {prod.imagenes.length === 1 ? 'foto' : 'fotos'}
+                            </span>
                           </div>
                           <div>
                             <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
@@ -810,13 +878,13 @@ export function AdminDashboard() {
                             />
                           </div>
 
-                          <button
+                           <button
                             type="button"
                             onClick={() => openEditProductModal(prod)}
                             className="px-4 py-1.5 rounded-full bg-[#111111] text-white font-bold flex items-center gap-1.5 hover:bg-zinc-800 transition"
                           >
                             <Pencil className="w-3.5 h-3.5" />
-                            <span>Editar Producto / Foto</span>
+                            <span>Editar Producto / Fotos</span>
                           </button>
 
                           <button
@@ -838,7 +906,6 @@ export function AdminDashboard() {
                               <th className="py-2 px-3">SKU</th>
                               <th className="py-2 px-2">Color</th>
                               <th className="py-2 px-2">Talla</th>
-                              <th className="py-2 px-2">Edición</th>
                               <th className="py-2 px-2 text-center">Físico (On Hand)</th>
                               <th className="py-2 px-2 text-center">Reservado</th>
                               <th className="py-2 px-2 text-center">Disponible Venta</th>
@@ -862,9 +929,6 @@ export function AdminDashboard() {
                                   </td>
                                   <td className="py-2.5 px-2 font-bold text-[#111111]">
                                     {v.talla}
-                                  </td>
-                                  <td className="py-2.5 px-2 text-zinc-500 text-[11px]">
-                                    {v.diseno_motivo}
                                   </td>
                                   <td className="py-2.5 px-2 text-center font-mono text-zinc-600 tabular-nums">
                                     {fisico} un.
@@ -1626,44 +1690,114 @@ export function AdminDashboard() {
             </div>
 
             <div className="space-y-4 text-xs">
-              {/* Photo Upload + Preview Section */}
-              <div className="bg-[#F5F5F7] rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4">
-                <div className="relative w-24 h-24 rounded-2xl overflow-hidden bg-white border border-zinc-200 shrink-0">
-                  <img
-                    src={
-                      prodImagenUrl ||
-                      'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85'
-                    }
-                    alt="Vista previa"
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover"
-                  />
+              {/* Multi-Photo Upload + Gallery Preview Section (Up to 8 Photos) */}
+              <div className="bg-[#F5F5F7] rounded-2xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <label className="text-xs font-extrabold text-[#111111] block">
+                      Galería de Fotografías del Producto ({prodImagenes.length} / 8 fotos)
+                    </label>
+                    <p className="text-[11px] text-zinc-500">
+                      Sube 4, 5 o hasta 8 ángulos por prenda. La primera foto será la portada principal y el cliente podrá deslizar todas una por una.
+                    </p>
+                  </div>
+
+                  <label
+                    className={`px-4 py-2 rounded-full bg-[#111111] text-white font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer hover:bg-zinc-800 transition shrink-0 ${
+                      prodImagenes.length >= 8 ? 'opacity-40 pointer-events-none' : ''
+                    }`}
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Subir Fotos (Múltiples)</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handlePhotoFileUpload}
+                      className="hidden"
+                    />
+                  </label>
                 </div>
 
-                <div className="flex-1 w-full space-y-2">
-                  <label className="text-xs font-bold text-[#111111] block">
-                    Fotografía del Producto (Compresión WebP Automática)
-                  </label>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label className="px-4 py-2 rounded-full bg-[#111111] text-white font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer hover:bg-zinc-800 transition">
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>Subir Foto desde Dispositivo</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handlePhotoFileUpload}
-                        className="hidden"
-                      />
-                    </label>
-                    <span className="text-[11px] text-zinc-400">o pegar URL de imagen:</span>
+                {/* Thumbnail Grid of Uploaded Photos */}
+                {prodImagenes.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    {prodImagenes.map((imgSrc, idx) => (
+                      <div
+                        key={`${idx}-${imgSrc.slice(0, 28)}`}
+                        className={`relative group rounded-2xl overflow-hidden bg-white border ${
+                          idx === 0
+                            ? 'border-[#111111] ring-2 ring-[#111111]/15'
+                            : 'border-zinc-200'
+                        }`}
+                      >
+                        <div className="aspect-square w-full overflow-hidden bg-zinc-100">
+                          <img
+                            src={imgSrc}
+                            alt={`Foto ${idx + 1}`}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+
+                        <div className="p-1.5 flex items-center justify-between gap-1 bg-white border-t border-zinc-100">
+                          {idx === 0 ? (
+                            <span className="px-2 py-0.5 rounded-full bg-[#111111] text-white text-[9px] font-extrabold uppercase tracking-wider">
+                              1 · Portada
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleSetCoverImage(idx)}
+                              className="px-2 py-0.5 rounded-full bg-[#F5F5F7] hover:bg-zinc-200 text-[#111111] text-[9px] font-bold transition"
+                              title="Usar como portada principal"
+                            >
+                              #{idx + 1} · Hacer Portada
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage(idx)}
+                            className="w-6 h-6 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-600 flex items-center justify-center transition"
+                            title="Eliminar esta fotografía"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-zinc-300 bg-white/80 p-4 text-center text-[11px] text-zinc-500">
+                    Aún no has cargado fotos para este producto. Haz clic en{' '}
+                    <strong className="text-[#111111]">Subir Fotos (Múltiples)</strong> para seleccionar 4 o 5 fotos a la vez desde tu dispositivo, o añade enlaces URL abajo.
+                  </div>
+                )}
+
+                {/* Add Image by URL */}
+                <div className="flex items-center gap-2 pt-1">
                   <input
                     type="text"
-                    value={prodImagenUrl}
-                    onChange={(e) => setProdImagenUrl(e.target.value)}
-                    placeholder="https://images.unsplash.com/..."
-                    className="w-full bg-white rounded-xl px-3 py-2 text-xs text-[#111111]"
+                    value={prodImagenUrlInput}
+                    onChange={(e) => setProdImagenUrlInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddImageUrl();
+                      }
+                    }}
+                    placeholder="O pega una URL de imagen (https://...) y pulsa Añadir Foto"
+                    className="flex-1 bg-white rounded-xl px-3 py-2 text-xs text-[#111111] border border-zinc-200/80"
                   />
+                  <button
+                    type="button"
+                    onClick={handleAddImageUrl}
+                    disabled={!prodImagenUrlInput.trim() || prodImagenes.length >= 8}
+                    className="px-3.5 py-2 rounded-xl bg-white border border-zinc-300 hover:bg-zinc-100 text-[#111111] font-bold text-xs disabled:opacity-40 transition shrink-0"
+                  >
+                    + Añadir URL
+                  </button>
                 </div>
               </div>
 

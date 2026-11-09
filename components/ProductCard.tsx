@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import Image from 'next/image';
 import { Producto, formatCOP } from '@/lib/data';
 import { useStore } from '@/lib/store';
-import { Heart, Plus, Check } from 'lucide-react';
+import { Heart, Plus, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ProductCardProps {
   producto: Producto;
@@ -14,8 +14,22 @@ interface ProductCardProps {
 export function ProductCard({ producto, onSelect }: ProductCardProps) {
   const { favorites, toggleFavorite, addToCart } = useStore();
   const [justAdded, setJustAdded] = useState(false);
+  const [activeImgIdx, setActiveImgIdx] = useState(0);
 
   const isFavorite = favorites.includes(producto.id);
+
+  const images =
+    Array.isArray(producto.imagenes) && producto.imagenes.length > 0
+      ? producto.imagenes
+      : [
+          'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85',
+        ];
+  const safeIdx = activeImgIdx < images.length ? activeImgIdx : 0;
+  const currentImg = images[safeIdx];
+  const isCustomOrDataImg =
+    currentImg.startsWith('data:') ||
+    (!currentImg.includes('images.unsplash.com') &&
+      !currentImg.includes('picsum.photos'));
 
   const totalStock = producto.variantes.reduce(
     (acc, v) => acc + v.stock_disponible,
@@ -53,7 +67,7 @@ export function ProductCard({ producto, onSelect }: ProductCardProps) {
       precio: producto.precio_base,
       cantidad: 1,
       stockMaximo: firstAvailableVariant.stock_disponible,
-      imagen: producto.imagenes[0] || '',
+      imagen: images[0] || '',
     });
 
     if (res.success) {
@@ -64,6 +78,16 @@ export function ProductCard({ producto, onSelect }: ProductCardProps) {
     }
   };
 
+  const handlePrevImg = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActiveImgIdx((prev) => (prev - 1 + images.length) % images.length);
+  };
+
+  const handleNextImg = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActiveImgIdx((prev) => (prev + 1) % images.length);
+  };
+
   return (
     <div
       onClick={() => onSelect(producto)}
@@ -71,18 +95,30 @@ export function ProductCard({ producto, onSelect }: ProductCardProps) {
     >
       {/* Image Container - Rounded 28px like Dribbble #27573251 */}
       <div className="relative aspect-[4/5] w-full overflow-hidden rounded-[28px] bg-[#F5F5F7]">
-        <Image
-          src={producto.imagenes[0]}
-          alt={producto.nombre}
-          fill
-          sizes="(max-width: 768px) 50vw, 33vw"
-          className={`object-cover transition-transform duration-500 group-hover:scale-105 ${
-            isOutOfStock ? 'grayscale opacity-50' : ''
-          }`}
-          referrerPolicy="no-referrer"
-        />
+        {isCustomOrDataImg ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={currentImg}
+            alt={producto.nombre}
+            referrerPolicy="no-referrer"
+            className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 ${
+              isOutOfStock ? 'grayscale opacity-50' : ''
+            }`}
+          />
+        ) : (
+          <Image
+            src={currentImg}
+            alt={producto.nombre}
+            fill
+            sizes="(max-width: 768px) 50vw, 33vw"
+            className={`object-cover transition-transform duration-500 group-hover:scale-105 ${
+              isOutOfStock ? 'grayscale opacity-50' : ''
+            }`}
+            referrerPolicy="no-referrer"
+          />
+        )}
 
-        {/* Top-Right Heart Favorite Button (1:1 Dribbble #27573251) */}
+        {/* Top-Right Heart Favorite Button */}
         <button
           type="button"
           onClick={(e) => {
@@ -94,15 +130,53 @@ export function ProductCard({ producto, onSelect }: ProductCardProps) {
         >
           <Heart
             className={`w-4 h-4 transition-colors ${
-              isFavorite
-                ? 'fill-rose-500 text-rose-500'
-                : 'text-[#111111]'
+              isFavorite ? 'fill-rose-500 text-rose-500' : 'text-[#111111]'
             }`}
           />
         </button>
 
-        {/* Bottom-Left Subtle Category & Stock Badge */}
-        <div className="absolute bottom-3 left-3 flex flex-wrap gap-1.5">
+        {/* Multi-Photo Prev / Next Controls on Card */}
+        {images.length > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={handlePrevImg}
+              aria-label="Foto anterior"
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/85 backdrop-blur-md text-[#111111] flex items-center justify-center shadow-xs opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition hover:bg-white active:scale-90 z-10"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleNextImg}
+              aria-label="Foto siguiente"
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/85 backdrop-blur-md text-[#111111] flex items-center justify-center shadow-xs opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition hover:bg-white active:scale-90 z-10"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+
+            {/* Pagination Dots */}
+            <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-black/35 backdrop-blur-xs px-2 py-1 rounded-full z-10">
+              {images.map((_, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveImgIdx(idx);
+                  }}
+                  aria-label={`Ver foto ${idx + 1}`}
+                  className={`h-1.5 rounded-full transition-all ${
+                    idx === safeIdx ? 'w-3.5 bg-white' : 'w-1.5 bg-white/50'
+                  }`}
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Bottom-Left Subtle Stock Badge */}
+        <div className="absolute bottom-3 left-3 flex flex-wrap gap-1.5 z-10">
           {isOutOfStock ? (
             <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-[#111111] text-white rounded-full">
               Agotado
@@ -116,7 +190,7 @@ export function ProductCard({ producto, onSelect }: ProductCardProps) {
         </div>
       </div>
 
-      {/* Product Details Below Card (1:1 Dribbble #27573251) */}
+      {/* Product Details Below Card */}
       <div className="pt-3 px-1 flex flex-col gap-1">
         <div className="flex items-center justify-between gap-1.5">
           <span className="text-[11px] font-medium text-zinc-500 truncate">
