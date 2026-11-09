@@ -19,13 +19,11 @@ import {
   Truck,
   Store,
   AlertCircle,
-  PackageCheck,
 } from 'lucide-react';
 
 interface CartDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onOpenTracker?: () => void;
 }
 
 type ShippingOptionId = 'cartagena' | 'nacional' | 'recoger';
@@ -33,7 +31,6 @@ type ShippingOptionId = 'cartagena' | 'nacional' | 'recoger';
 export function CartDrawer({
   isOpen,
   onClose,
-  onOpenTracker,
 }: CartDrawerProps) {
   const {
     cart,
@@ -206,37 +203,17 @@ export function CartDrawer({
 
         {/* Order Dispatched Alert Banner */}
         {orderSuccessNumber && (
-          <div className="m-4 p-4 rounded-2xl bg-[#F5F5F7] border border-zinc-200 flex flex-col gap-2.5">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-              <div className="text-xs text-zinc-600 space-y-1">
-                <p className="font-bold text-[#111111]">
-                  ¡Orden {orderSuccessNumber} Generada!
-                </p>
-                <p>
-                  Tu pedido fue registrado y se abrió WhatsApp con el resumen de
-                  despacho. Conserva tu código{' '}
-                  <strong className="text-[#111111]">
-                    {orderSuccessNumber}
-                  </strong>{' '}
-                  para consultar tu guía en cualquier momento.
-                </p>
-              </div>
+          <div className="m-4 p-4 rounded-2xl bg-[#F5F5F7] border border-zinc-200 flex items-start gap-3">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="text-xs text-zinc-600 space-y-1">
+              <p className="font-bold text-[#111111]">
+                ¡Orden {orderSuccessNumber} Generada!
+              </p>
+              <p>
+                Tu pedido fue registrado y se abrió WhatsApp con el resumen de
+                tu compra para coordinar el pago y la entrega.
+              </p>
             </div>
-            {onOpenTracker && (
-              <button
-                type="button"
-                onClick={() => {
-                  setOrderSuccessNumber(null);
-                  onClose();
-                  onOpenTracker();
-                }}
-                className="w-full py-2.5 rounded-full bg-[#111111] text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-zinc-800 transition"
-              >
-                <PackageCheck className="w-4 h-4" />
-                <span>Rastrear Estado de mi Pedido ({orderSuccessNumber})</span>
-              </button>
-            )}
           </div>
         )}
 
@@ -254,28 +231,13 @@ export function CartDrawer({
                 Explora la colección de Camisetas, Bolsos y Chanclas y selecciona
                 tu talla favorita.
               </p>
-              <div className="flex flex-col gap-2.5 w-full max-w-xs">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-6 py-3 rounded-full bg-[#111111] text-white font-semibold text-xs hover:bg-zinc-800 transition"
-                >
-                  Explorar Catálogo
-                </button>
-                {onOpenTracker && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      onOpenTracker();
-                    }}
-                    className="px-6 py-3 rounded-full bg-[#F5F5F7] text-[#111111] font-semibold text-xs hover:bg-zinc-200 transition flex items-center justify-center gap-1.5"
-                  >
-                    <PackageCheck className="w-4 h-4" />
-                    <span>Rastrear un Pedido Anterior</span>
-                  </button>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-6 py-3 rounded-full bg-[#111111] text-white font-semibold text-xs hover:bg-zinc-800 transition"
+              >
+                Explorar Catálogo
+              </button>
             </div>
           ) : (
             <>

@@ -8,12 +8,7 @@ import { Header } from '@/components/Header';
 import { ProductCard } from '@/components/ProductCard';
 import { ProductDetailModal } from '@/components/ProductDetailModal';
 import { CartDrawer } from '@/components/CartDrawer';
-import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 import { StoreFooter, CookieConsentBanner } from '@/components/FooterAndCookies';
-import {
-  OrderTrackerModal,
-  PushNotificationToast,
-} from '@/components/OrderTrackerModal';
 import {
   ShoppingBag,
   SlidersHorizontal,
@@ -22,7 +17,6 @@ import {
   WifiOff,
   Home as HomeIcon,
   Heart,
-  PackageCheck,
   MessageCircle,
   Sparkles,
   Check,
@@ -37,7 +31,6 @@ export default function Home() {
     cartTotalCount,
     cartSubtotal,
     storeConfig,
-    unreadNotificationsCount,
     isHydrated,
   } = useStore();
 
@@ -63,7 +56,6 @@ export default function Home() {
   // Modals
   const [selectedProduct, setSelectedProduct] = useState<Producto | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [isTrackerOpen, setIsTrackerOpen] = useState(false);
 
   const [mounted, setMounted] = useState(false);
 
@@ -218,19 +210,12 @@ export default function Home() {
         </div>
       )}
 
-      {/* In-App Real-Time Push Notification Toast */}
-      <PushNotificationToast onOpenTracker={() => setIsTrackerOpen(true)} />
-
       {/* Minimalist App Profile Header (1:1 Dribbble #27573251 - With La Santa Store) */}
       <Header
         onOpenCart={() => setIsCartOpen(true)}
-        onOpenTracker={() => setIsTrackerOpen(true)}
         activeNavTab={activeNavTab}
         setActiveNavTab={setActiveNavTab}
       />
-
-      {/* PWA Install Prompt */}
-      <PWAInstallPrompt />
 
       {/* Main Mobile Marketplace Container */}
       <main className="max-w-5xl mx-auto w-full px-4 sm:px-6 pt-3 space-y-6 flex-1">
@@ -280,15 +265,15 @@ export default function Home() {
             <div className="relative z-10 max-w-md space-y-3">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[#111111] text-[11px] font-bold tracking-wide shadow-2xs">
                 <Sparkles className="w-3 h-3 text-[#111111]" />
-                <span>{storeConfig.storeCity || 'Cartagena de Indias'} · Drop 2026</span>
+                <span>Nueva Colección</span>
               </span>
 
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#111111] leading-[1.15]">
-                Streetwear Contemporáneo &amp; Esenciales de Costa.
+                Moda Urbana &amp; Esenciales Contemporáneos.
               </h1>
 
               <p className="text-xs text-zinc-500 font-medium leading-relaxed line-clamp-2">
-                Camisetas Heavyweight, Bolsos Tote y Chanclas Slides con stock en tiempo real y despacho inmediato desde Cartagena.
+                Camisetas Oversize, Bolsos Tote y Chanclas Slides con disponibilidad inmediata y envíos a todo el país.
               </p>
 
               <div className="pt-1 flex flex-wrap items-center gap-2.5">
@@ -303,7 +288,7 @@ export default function Home() {
                   }}
                   className="px-5 py-2.5 rounded-full bg-[#111111] text-white text-xs font-bold hover:bg-zinc-800 transition active:scale-95 inline-flex items-center gap-1.5 shadow-xs"
                 >
-                  <span>Explorar Drop</span>
+                  <span>Ver Colección</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
 
@@ -565,19 +550,16 @@ export default function Home() {
             )}
           </button>
 
-          {/* Customer Order Tracker / Mis Pedidos Button (Replaces internal /admin button) */}
+          {/* Direct WhatsApp Support Button */}
           <button
             type="button"
-            onClick={() => setIsTrackerOpen(true)}
+            onClick={() => handleOpenWhatsAppDirect()}
             className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-full text-xs font-semibold text-zinc-300 hover:text-white transition relative"
-            title="Rastrear Pedido y Notificaciones de Despacho"
-            aria-label="Rastrear estado de mi pedido"
+            title="Atención directa por WhatsApp"
+            aria-label="Contactar por WhatsApp"
           >
-            <PackageCheck className="w-4 h-4" />
-            <span className="hidden sm:inline">Pedidos</span>
-            {unreadNotificationsCount > 0 && (
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 absolute top-2 right-2 animate-pulse" />
-            )}
+            <MessageCircle className="w-4 h-4" />
+            <span className="hidden sm:inline">WhatsApp</span>
           </button>
         </div>
       </div>
@@ -662,13 +644,6 @@ export default function Home() {
       <CartDrawer
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
-        onOpenTracker={() => setIsTrackerOpen(true)}
-      />
-
-      {/* Customer Real-Time Order & Guide Tracker Modal */}
-      <OrderTrackerModal
-        isOpen={isTrackerOpen}
-        onClose={() => setIsTrackerOpen(false)}
       />
 
       {/* 100% Functional Store Filter Modal (Categories: Camisetas, Bolsos, Chanclas + Sizes + Colors + Price Sort + Stock) */}
