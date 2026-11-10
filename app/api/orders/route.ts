@@ -54,6 +54,24 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      // Validate quantities and prices: positive numbers only
+      for (const it of items) {
+        const qty = Number(it.cantidad);
+        if (!Number.isInteger(qty) || qty <= 0 || qty > 99) {
+          return NextResponse.json(
+            { success: false, message: 'Las cantidades deben ser números enteros positivos mayores a cero.' },
+            { status: 400 }
+          );
+        }
+        const price = Number(it.precio);
+        if (typeof it.precio !== 'number' || isNaN(price) || price < 0) {
+          return NextResponse.json(
+            { success: false, message: 'Los precios unitarios no pueden ser negativos ni inválidos.' },
+            { status: 400 }
+          );
+        }
+      }
+
       const estadoInicial: EstadoPedido = body.estado || 'Facturado';
       const shouldDeduct = isStockCommittedState(estadoInicial);
       const nextSeq = db.storeConfig.nextInvoiceSequence || 1003;
@@ -197,6 +215,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const clientName = typeof body.clienteNombre === 'string' ? body.clienteNombre.trim() : '';
+    const rawPhone = typeof body.clienteTelefono === 'string' ? body.clienteTelefono.trim() : '';
+    const cleanPhoneDigits = rawPhone.replace(/\D/g, '');
+    const shippingOpt: 'recoger' | 'nacional' | 'cartagena' | 'local' = body.envioOpcion || 'local';
+    const clientAddress = typeof body.clienteDireccion === 'string' ? body.clienteDireccion.trim() : '';
+
+    if (clientName.length < 3) {
+      return NextResponse.json(
+        { success: false, message: 'Por favor ingresa tu nombre y apellido (mínimo 3 caracteres).' },
+        { status: 400 }
+      );
+    }
+
+    if (cleanPhoneDigits.length < 7) {
+      return NextResponse.json(
+        { success: false, message: 'Por favor ingresa un número de WhatsApp o celular válido (mínimo 7 dígitos).' },
+        { status: 400 }
+      );
+    }
+
+    if (shippingOpt !== 'recoger' && clientAddress.length < 6) {
+      return NextResponse.json(
+        { success: false, message: 'Por favor ingresa la dirección de entrega exacta (mínimo 6 caracteres).' },
+        { status: 400 }
+      );
+    }
+
     const rawItems: CartItem[] = Array.isArray(body.items) ? body.items : [];
     if (rawItems.length === 0 || rawItems.length > 30) {
       return NextResponse.json(
@@ -254,46 +299,46 @@ export async function POST(req: NextRequest) {
       0
     );
     const whatsappTax = calculateTaxBreakdown(subtotal, 19);
-    const safeShipping = Math.min(
-      50000,
-      Math.max(0, Number(body.costoEnvio || 0))
-    );
-    const shippingLabel =
-      typeof body.envioTexto === 'string' && body.envioTexto.trim()
-        ? body.envioTexto.trim().slice(0, 120)
-        : db.storeConfig.deliveryNote;
 
-    const requestedOrderNum =
-      typeof body.orderNumber === 'string' && /^#ORD-\d{4,8}$/.test(body.orderNumber.trim())
-        ? body.orderNumber.trim()
-        : null;
-    const isCollision =
-      requestedOrderNum && db.orders.some((o) => o.orderNumber === requestedOrderNum);
-    const orderNum =
-      requestedOrderNum && !isCollision
-        ? requestedOrderNum
-        : `#ORD-${Math.floor(1000 + Math.random() * 9000)}`;
+    // Compute shipping strictly based on server configuration
+    let safeShipping = 0;
+    let shippingLabel = 'Recoger en Punto de Venta';
+    if (shippingOpt === 'nacional') {
+      safeShipping = Math.max(0, db.storeConfig.tarifaEnvioNacional ?? 16000);
+      shippingLabel = 'Envío Nacional Asegurado';
+    } else if (shippingOpt === 'recoger') {
+      safeShipping = 0;
+      shippingLabel = 'Recoger en Punto de Venta';
+    } else {
+      const freeThreshold = db.storeConfig.envioGratisDesde ?? 200000;
+      const isFree = subtotal >= freeThreshold;
+      safeShipping = isFree ? 0 : Math.max(0, db.storeConfig.tarifaEnvioCartagena ?? 8000);
+      shippingLabel = isFree
+        ? `Envío Local (Gratis por compra >= ${formatCOP(freeThreshold)})`
+        : 'Envío Local';
+    }
 
-    const requestedId =
-      typeof body.id === 'string' && /^ord-[\w-]+$/.test(body.id.trim())
-        ? body.id.trim()
-        : null;
-    const orderId =
-      requestedId && !db.orders.some((o) => o.id === requestedId)
-        ? requestedId
-        : `ord-${Date.now()}`;
+    // Server-authoritative sequential order numbering
+    const nextOrderSeq = (db.storeConfig.nextOrderSequence || 1000) + 1;
+    db.storeConfig.nextOrderSequence = nextOrderSeq;
+    const orderNum = `#ORD-${nextOrderSeq}`;
+    const orderId = `ord-${Date.now()}-${nextOrderSeq}`;
+
+    const appBaseUrl = process.env.APP_URL || 'https://lasantastore.enigmaproducciones.com';
+    const referenceUrl = `${appBaseUrl.replace(/\/$/, '')}/?pedido=${orderNum.replace('#', '')}`;
 
     const newOrder: Order = {
       id: orderId,
       orderNumber: orderNum,
       fecha: formattedDate,
       origen: 'WhatsApp',
-      clienteNombre: (body.clienteNombre || 'Cliente WhatsApp').trim().slice(0, 120),
+      clienteNombre: clientName,
       clienteDocumento: (body.clienteDocumento || '').trim().slice(0, 40),
-      clienteDireccion: (body.clienteDireccion || 'Cartagena de Indias · Por confirmar')
-        .trim()
-        .slice(0, 200),
-      clienteTelefono: (body.clienteTelefono || '').trim().slice(0, 40),
+      clienteDireccion:
+        shippingOpt === 'recoger'
+          ? clientAddress || 'Recoger en Punto de Venta'
+          : clientAddress,
+      clienteTelefono: rawPhone,
       items: verifiedItems,
       subtotal,
       baseGravable: whatsappTax.baseGravable,
@@ -307,9 +352,7 @@ export async function POST(req: NextRequest) {
       metodoPagoInterno: 'Por definir',
       stockDeducted: false,
       notas: typeof body.notas === 'string' ? body.notas.slice(0, 500) : '',
-      referenceUrl:
-        body.referenceUrl ||
-        `https://lasantastore.enigmaproducciones.com/pedido/${orderNum.replace('#', '')}`,
+      referenceUrl,
     };
 
     db.orders = [newOrder, ...db.orders];
@@ -349,6 +392,22 @@ export async function PUT(req: NextRequest) {
 
     const existingOrder = db.orders[targetIndex];
     const formattedDate = getFormattedNow();
+
+    // Preserve invoice immutability: Line items of an issued invoice cannot be retroactively altered
+    if (
+      existingOrder.invoiceNumber &&
+      existingOrder.estado !== 'Cancelado' &&
+      body.items &&
+      JSON.stringify(body.items) !== JSON.stringify(existingOrder.items)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `La factura oficial ${existingOrder.invoiceNumber} ya fue emitida y sus productos no pueden ser modificados. Para registrar devoluciones o cambios, anula la factura con Nota Crédito o ajusta el estado de entrega.`,
+        },
+        { status: 400 }
+      );
+    }
 
     const nextEstado: EstadoPedido = body.estado || existingOrder.estado;
     const nextItems = Array.isArray(body.items) ? body.items : existingOrder.items;

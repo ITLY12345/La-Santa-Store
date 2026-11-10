@@ -189,7 +189,7 @@ export default function Home() {
   };
 
   const handleOpenWhatsAppDirect = (customMessage?: string) => {
-    const cleanPhone = (storeConfig.storePhone || '573105559876').replace(/\D/g, '');
+    const cleanPhone = (storeConfig.storePhone || '573022241002').replace(/\D/g, '');
     const text =
       customMessage ||
       `Hola ${storeConfig.storeName} (${storeConfig.storeCity}), estoy visitando la tienda y me gustaría recibir asesoría sobre las prendas disponibles.`;

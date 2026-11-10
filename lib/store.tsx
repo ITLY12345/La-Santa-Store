@@ -103,15 +103,12 @@ interface StoreContextType {
   clearCart: () => void;
   // Order & Internal POS Billing CRUD actions
   createOrder: (payload: {
-    orderNumber?: string;
     clienteNombre: string;
     clienteDireccion: string;
-    clienteTelefono?: string;
-    costoEnvio?: number;
-    envioTexto?: string;
-    referenceUrl?: string;
+    clienteTelefono: string;
+    envioOpcion: 'recoger' | 'nacional' | 'cartagena' | 'local';
     notas?: string;
-  }) => Order;
+  }) => Promise<{ success: boolean; order?: Order; message?: string }>;
   createPosInvoice: (payload: {
     clienteNombre: string;
     clienteDocumento?: string;
@@ -1041,83 +1038,53 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatchNativeAndInAppPush(notif);
   };
 
-  // 1. Create order from WhatsApp checkout with unified orderNumber
-  const createOrder = (payload: {
-    orderNumber?: string;
+  // 1. Create order from WhatsApp checkout with verified server registration
+  const createOrder = async (payload: {
     clienteNombre: string;
     clienteDireccion: string;
-    clienteTelefono?: string;
-    costoEnvio?: number;
-    envioTexto?: string;
-    referenceUrl?: string;
+    clienteTelefono: string;
+    envioOpcion: 'recoger' | 'nacional' | 'cartagena' | 'local';
     notas?: string;
-  }): Order => {
-    const orderNum =
-      payload.orderNumber && /^#ORD-\d{4,8}$/.test(payload.orderNumber)
-        ? payload.orderNumber
-        : `#ORD-${Math.floor(1000 + Math.random() * 9000)}`;
-    const formattedDate = getFormattedNow();
-    const orderItems = [...cart];
-    const orderId = `ord-${Date.now()}`;
-    const safeShipping = Math.max(0, Number(payload.costoEnvio || 0));
-    const shippingLabel = payload.envioTexto || storeConfig.deliveryNote;
+  }): Promise<{ success: boolean; order?: Order; message?: string }> => {
+    if (cart.length === 0) {
+      return { success: false, message: 'La bolsa de compra está vacía.' };
+    }
 
-    const newOrder: Order = {
-      id: orderId,
-      orderNumber: orderNum,
-      fecha: formattedDate,
-      origen: 'WhatsApp',
-      clienteNombre: payload.clienteNombre || 'Cliente WhatsApp',
-      clienteDocumento: '',
-      clienteDireccion: payload.clienteDireccion || 'Cartagena de Indias · Por confirmar',
-      clienteTelefono: payload.clienteTelefono || '',
-      items: orderItems,
-      subtotal: cartSubtotal,
-      costoEnvio: safeShipping,
-      descuentoManual: 0,
-      envioTexto: shippingLabel,
-      total: cartSubtotal + safeShipping,
-      estado: 'Pendiente',
-      metodoPagoInterno: 'Por definir',
-      stockDeducted: false,
-      notas: payload.notas,
-      referenceUrl:
-        payload.referenceUrl ||
-        `https://lasantastore.enigmaproducciones.com/pedido/${orderNum.replace('#', '')}`,
-    };
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origen: 'WhatsApp',
+          clienteNombre: payload.clienteNombre,
+          clienteDireccion: payload.clienteDireccion,
+          clienteTelefono: payload.clienteTelefono,
+          envioOpcion: payload.envioOpcion,
+          items: cart,
+          notas: payload.notas,
+        }),
+      });
 
-    registerMyOrderId(newOrder.id);
-    setOrders([newOrder, ...orders]);
-    clearCart();
+      const data = await res.json();
+      if (!res.ok || !data.success || !data.order) {
+        return {
+          success: false,
+          message: data.message || 'No fue posible registrar el pedido. Intenta nuevamente.',
+        };
+      }
 
-    fetch('/api/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: newOrder.id,
-        orderNumber: newOrder.orderNumber,
-        origen: 'WhatsApp',
-        clienteNombre: newOrder.clienteNombre,
-        clienteDireccion: newOrder.clienteDireccion,
-        clienteTelefono: newOrder.clienteTelefono,
-        costoEnvio: safeShipping,
-        envioTexto: shippingLabel,
-        items: orderItems,
-        referenceUrl: newOrder.referenceUrl,
-        notas: newOrder.notas,
-      }),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.orders)) {
-          setOrders(data.orders);
-        } else if (data.success && data.order) {
-          registerMyOrderId(data.order.id);
-        }
-      })
-      .catch(() => {});
-
-    return newOrder;
+      const confirmedOrder: Order = data.order;
+      registerMyOrderId(confirmedOrder.id);
+      setOrders((prev) => [confirmedOrder, ...prev.filter((o) => o.id !== confirmedOrder.id)]);
+      clearCart();
+      return { success: true, order: confirmedOrder };
+    } catch (err) {
+      console.error('Error al registrar pedido WhatsApp:', err);
+      return {
+        success: false,
+        message: 'Error de conexión al registrar tu pedido. Por favor verifica tu conexión a internet.',
+      };
+    }
   };
 
   // 2. Create a direct POS internal invoice

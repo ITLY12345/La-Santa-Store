@@ -179,6 +179,7 @@ export interface StoreConfig {
   deliveryNote: string;
   nextInvoiceSequence: number;
   nextCreditNoteSequence?: number;
+  nextOrderSequence?: number;
   // Parámetros ERP / DIAN (res.config.settings)
   regimenTributario?: string;
   resolucionFacturacion?: string;
@@ -194,7 +195,7 @@ export interface StoreConfig {
 export const DEFAULT_STORE_CONFIG: StoreConfig = {
   storeName: 'La Santa Store',
   storeNit: '901.482.319-4',
-  storePhone: '573105559876',
+  storePhone: '573022241002',
   storeAddress: 'Cartagena de Indias, Colombia · Despachos Nacionales',
   storeCity: 'Cartagena de Indias, Colombia',
   corporateTagline:
@@ -204,6 +205,7 @@ export const DEFAULT_STORE_CONFIG: StoreConfig = {
   deliveryNote: '(Despacho desde Cartagena · A convenir)',
   nextInvoiceSequence: 1003,
   nextCreditNoteSequence: 1001,
+  nextOrderSequence: 1000,
   regimenTributario: 'Responsable de IVA (19%)',
   resolucionFacturacion: 'Resolución DIAN 18764000012345 · Vigencia 2026',
   prefijoFactura: 'FAC',

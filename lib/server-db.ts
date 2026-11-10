@@ -128,13 +128,26 @@ function resolveDbFilePaths(): string[] {
 }
 
 export function getFormattedNow(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
-    2,
-    '0'
-  )}-${String(now.getDate()).padStart(2, '0')} ${String(
-    now.getHours()
-  ).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  try {
+    const formatter = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'America/Bogota',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    return formatter.format(new Date()).replace('T', ' ');
+  } catch {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+      2,
+      '0'
+    )}-${String(now.getDate()).padStart(2, '0')} ${String(
+      now.getHours()
+    ).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  }
 }
 
 export function isStockCommittedState(estado: EstadoPedido): boolean {
@@ -276,7 +289,7 @@ async function syncRelationalErpTablesInBackground(db: ServerDatabase): Promise<
       [
         (db.storeConfig.storeName || 'La Santa Store').slice(0, 120),
         (db.storeConfig.storeNit || '901.482.319-4').slice(0, 30),
-        (db.storeConfig.storePhone || '573105559876').slice(0, 30),
+        (db.storeConfig.storePhone || '573022241002').slice(0, 30),
         (db.storeConfig.storeAddress || '').slice(0, 255),
         (db.storeConfig.storeCity || '').slice(0, 100),
         db.storeConfig.corporateTagline || '',
@@ -649,6 +662,9 @@ export function createOrderStatusNotification(
       }`
     : '';
 
+  const firstName = (order.clienteNombre || 'Cliente').trim().split(/\s+/)[0];
+  const ciudadDestino = (order.clienteDireccion || '').split(',').pop()?.trim().slice(0, 30) || 'tu dirección';
+
   const titulo =
     nuevoEstado === 'Despachado'
       ? `¡Tu pedido ${order.orderNumber} ha sido Despachado!`
@@ -656,8 +672,8 @@ export function createOrderStatusNotification(
 
   const mensaje =
     nuevoEstado === 'Despachado'
-      ? `Hola ${order.clienteNombre}, tu pedido ${refCode} ya salió de nuestro centro de operaciones en Cartagena de Indias rumbo a ${order.clienteDireccion}${guiaInfo}.`
-      : `Hola ${order.clienteNombre}, confirmamos que tu pedido ${refCode} ha sido entregado exitosamente en ${order.clienteDireccion}. ¡Gracias por tu compra!`;
+      ? `Hola ${firstName}, tu pedido ${refCode} ha sido despachado con destino a ${ciudadDestino}${guiaInfo}.`
+      : `Hola ${firstName}, confirmamos que tu pedido ${refCode} ha sido entregado exitosamente. ¡Gracias por elegir La Santa Store!`;
 
   return {
     id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,

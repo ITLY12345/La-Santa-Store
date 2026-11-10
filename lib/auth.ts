@@ -48,7 +48,10 @@ function getServerSecret(): string {
 export function getClientIp(req: NextRequest): string {
   const forwarded = req.headers.get('x-forwarded-for');
   if (forwarded) {
-    return forwarded.split(',')[0].trim();
+    const parts = forwarded.split(',').map((s) => s.trim()).filter(Boolean);
+    if (parts.length > 0) {
+      return parts[parts.length - 1]; // Rightmost proxy added IP (cannot be forged by client)
+    }
   }
   return req.headers.get('x-real-ip')?.trim() || '127.0.0.1';
 }
@@ -154,14 +157,40 @@ export function checkEndpointRateLimit(
 }
 
 /**
+ * Hashes a PIN using crypto.scrypt with a unique random 16-byte salt.
+ */
+export function hashPin(pin: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(pin.trim(), salt, 64).toString('hex');
+  return `scrypt$${salt}$${hash}`;
+}
+
+/**
  * Constant-time PIN comparison to prevent timing attacks.
+ * Supports scrypt-salted hashes as well as legacy unhashed PINs for migration.
  */
 export function verifyPinSafe(inputPin: string, configuredPin: string): boolean {
-  const effectivePin = (process.env.ADMIN_PIN || configuredPin || '1234').trim();
   const candidate = (inputPin || '').trim();
-  if (!candidate || candidate.length !== effectivePin.length) {
+  const effectivePin = (process.env.ADMIN_PIN || configuredPin || '1234').trim();
+  if (!candidate || !effectivePin) {
     return false;
   }
+
+  if (effectivePin.startsWith('scrypt$')) {
+    const parts = effectivePin.split('$');
+    const salt = parts[1];
+    const expectedHex = parts[2];
+    if (!salt || !expectedHex) return false;
+    try {
+      const derived = crypto.scryptSync(candidate, salt, 64);
+      const expectedBuf = Buffer.from(expectedHex, 'hex');
+      return derived.length === expectedBuf.length && crypto.timingSafeEqual(derived, expectedBuf);
+    } catch {
+      return false;
+    }
+  }
+
+  // Fallback constant-time check for legacy unhashed PIN
   try {
     const bufA = Buffer.from(candidate, 'utf-8');
     const bufB = Buffer.from(effectivePin, 'utf-8');

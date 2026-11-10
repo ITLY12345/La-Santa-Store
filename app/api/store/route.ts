@@ -5,6 +5,7 @@ import {
   unauthorizedResponse,
   sanitizePublicStoreConfig,
   verifyPinSafe,
+  hashPin,
 } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
@@ -24,9 +25,14 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Filter out internal cost margins for public storefront
+  const publicProducts = db.products.map(
+    ({ costo_unitario: _c, configuracion_alertas: _a, ...rest }) => rest
+  );
+
   return NextResponse.json({
     isAdmin: false,
-    products: db.products,
+    products: publicProducts,
     storeConfig: sanitizePublicStoreConfig(db.storeConfig),
     updatedAt: db.updatedAt,
   });
@@ -55,6 +61,15 @@ export async function PUT(req: NextRequest) {
     }
 
     if (body.action === 'reset') {
+      if (process.env.NODE_ENV === 'production') {
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'La restauración completa de base de datos está deshabilitada en entorno de producción por seguridad.',
+          },
+          { status: 403 }
+        );
+      }
       const fresh = await writeDbAsync(getInitialDb());
       return NextResponse.json({
         success: true,
@@ -75,25 +90,33 @@ export async function PUT(req: NextRequest) {
         const providedCurrentPin =
           typeof body.currentPin === 'string' ? body.currentPin.trim() : '';
         if (
-          providedCurrentPin &&
+          !providedCurrentPin ||
           !verifyPinSafe(providedCurrentPin, db.storeConfig.adminPin)
         ) {
           return NextResponse.json(
             {
               success: false,
               message:
-                'El PIN actual ingresado es incorrecto. No se modificó el PIN administrativo.',
+                'Por seguridad debes ingresar el PIN actual correcto para poder modificar el PIN administrativo.',
             },
             { status: 403 }
           );
         }
       }
 
+      // Do not allow mass-assigning read-only sequences or unapproved internal props
+      const {
+        nextInvoiceSequence: _seq,
+        nextCreditNoteSequence: _nc,
+        nextOrderSequence: _ord,
+        ...allowedUpdates
+      } = body.storeConfig;
+
       db.storeConfig = {
         ...db.storeConfig,
-        ...body.storeConfig,
+        ...allowedUpdates,
         adminPin:
-          incomingPin.length >= 4 ? incomingPin : db.storeConfig.adminPin,
+          incomingPin.length >= 4 ? hashPin(incomingPin) : db.storeConfig.adminPin,
       };
       const saved = await writeDbAsync(db);
       return NextResponse.json({

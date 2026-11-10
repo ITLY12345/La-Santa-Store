@@ -28,9 +28,19 @@ function validateImagesArray(imagenes: unknown): { valid: boolean; sanitized: st
   return { valid: true, sanitized: sanitized.length > 0 ? sanitized : [defaultImg] };
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const db = await readDbAsync();
-  return NextResponse.json({ products: db.products });
+  const isAdmin = isAdminRequest(req);
+  if (isAdmin) {
+    return NextResponse.json({ products: db.products });
+  }
+
+  // Sanitize internal margins and costs for public visitors
+  const publicProducts = db.products.map(
+    ({ costo_unitario: _c, configuracion_alertas: _a, ...rest }) => rest
+  );
+
+  return NextResponse.json({ products: publicProducts });
 }
 
 export async function POST(req: NextRequest) {

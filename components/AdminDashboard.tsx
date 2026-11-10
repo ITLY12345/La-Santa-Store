@@ -1442,7 +1442,7 @@ export function AdminDashboard() {
                       type="text"
                       value={newPhone}
                       onChange={(e) => setNewPhone(e.target.value)}
-                      placeholder="Ej. 573105559876"
+                      placeholder="Ej. 573022241002"
                       className="w-full bg-white rounded-2xl pl-9 pr-3.5 py-2.5 text-xs text-[#111111] font-mono focus:outline-none focus:ring-1 focus:ring-[#111111]"
                     />
                   </div>

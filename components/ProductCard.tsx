@@ -47,26 +47,29 @@ export function ProductCard({ producto, onSelect }: ProductCardProps) {
 
   const handleQuickAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const firstAvailableVariant = producto.variantes.find(
+    const availableVariants = producto.variantes.filter(
       (v) => v.stock_disponible > 0
     );
-    if (!firstAvailableVariant) {
+
+    // Si tiene más de una talla disponible (o ninguna), abrir el modal para que el cliente elija su talla
+    if (availableVariants.length !== 1) {
       onSelect(producto);
       return;
     }
 
+    const singleVariant = availableVariants[0];
     const res = addToCart({
       productoId: producto.id,
-      varianteId: firstAvailableVariant.id_variante,
+      varianteId: singleVariant.id_variante,
       nombre: producto.nombre,
       categoria: producto.categoria,
       marca_motivo: producto.marca_motivo,
-      talla: firstAvailableVariant.talla,
-      color: firstAvailableVariant.color,
-      diseno_motivo: firstAvailableVariant.diseno_motivo,
+      talla: singleVariant.talla,
+      color: singleVariant.color,
+      diseno_motivo: singleVariant.diseno_motivo,
       precio: producto.precio_base,
       cantidad: 1,
-      stockMaximo: firstAvailableVariant.stock_disponible,
+      stockMaximo: singleVariant.stock_disponible,
       imagen: images[0] || '',
     });
 

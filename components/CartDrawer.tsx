@@ -48,6 +48,7 @@ export function CartDrawer({
   const [shippingOption, setShippingOption] =
     useState<ShippingOptionId>('cartagena');
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccessNumber, setOrderSuccessNumber] = useState<string | null>(
     null
   );
@@ -94,15 +95,14 @@ export function CartDrawer({
 
   if (!isOpen) return null;
 
-  const handleCheckoutWhatsApp = () => {
-    if (cart.length === 0) return;
+  const handleCheckoutWhatsApp = async () => {
+    if (cart.length === 0 || isSubmitting) return;
 
     const cleanName = clienteNombre.trim();
     const cleanPhone = clienteTelefono.replace(/\D/g, '');
     const effectiveAddress =
       shippingOption === 'recoger'
-        ? clienteDireccion.trim() ||
-          'Recoger en Punto de Venta'
+        ? clienteDireccion.trim() || 'Recoger en Punto de Venta'
         : clienteDireccion.trim();
 
     if (cleanName.length < 3) {
@@ -127,42 +127,46 @@ export function CartDrawer({
     }
 
     setValidationError(null);
+    setIsSubmitting(true);
 
-    // Generate a single unified order number shared between the database and the WhatsApp link
-    const unifiedOrderNumber = `#ORD-${Math.floor(1000 + Math.random() * 9000)}`;
-    const refUrl = `https://lasantastore.enigmaproducciones.com/pedido/${unifiedOrderNumber.replace(
-      '#',
-      ''
-    )}`;
-
-    const { waLink } = generateWhatsAppMessage(
-      {
-        orderNumber: unifiedOrderNumber,
-        items: cart,
-        subtotal: cartSubtotal,
-        costoEnvio: shippingDetails.costo,
-        envioTexto: shippingDetails.label,
-        total: totalPagar,
+    try {
+      const res = await createOrder({
         clienteNombre: cleanName,
         clienteDireccion: effectiveAddress,
         clienteTelefono: clienteTelefono.trim(),
-        referenceUrl: refUrl,
-      },
-      storeConfig.storePhone
-    );
+        envioOpcion: shippingOption,
+      });
 
-    const newOrder = createOrder({
-      orderNumber: unifiedOrderNumber,
-      clienteNombre: cleanName,
-      clienteDireccion: effectiveAddress,
-      clienteTelefono: clienteTelefono.trim(),
-      costoEnvio: shippingDetails.costo,
-      envioTexto: shippingDetails.label,
-      referenceUrl: refUrl,
-    });
+      if (!res.success || !res.order) {
+        setValidationError(
+          res.message || 'No fue posible registrar tu pedido. Por favor intenta de nuevo.'
+        );
+        return;
+      }
 
-    setOrderSuccessNumber(newOrder.orderNumber);
-    window.open(waLink, '_blank', 'noopener,noreferrer');
+      const confirmed = res.order;
+      setOrderSuccessNumber(confirmed.orderNumber);
+
+      const { waLink } = generateWhatsAppMessage(
+        {
+          orderNumber: confirmed.orderNumber,
+          items: confirmed.items,
+          subtotal: confirmed.subtotal,
+          costoEnvio: confirmed.costoEnvio,
+          envioTexto: confirmed.envioTexto,
+          total: confirmed.total,
+          clienteNombre: confirmed.clienteNombre,
+          clienteDireccion: confirmed.clienteDireccion,
+          clienteTelefono: confirmed.clienteTelefono,
+          referenceUrl: confirmed.referenceUrl,
+        },
+        storeConfig.storePhone || '573022241002'
+      );
+
+      window.open(waLink, '_blank', 'noopener,noreferrer');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -520,11 +524,12 @@ export function CartDrawer({
 
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={handleCheckoutWhatsApp}
-              className="w-full py-4 rounded-full bg-[#111111] hover:bg-zinc-800 text-white font-semibold text-sm flex items-center justify-center gap-2 transition active:scale-[0.99]"
+              className="w-full py-4 rounded-full bg-[#111111] hover:bg-zinc-800 text-white font-semibold text-sm flex items-center justify-center gap-2 transition active:scale-[0.99] disabled:opacity-50"
             >
               <MessageCircle className="w-4 h-4" />
-              <span>Confirmar Pedido por WhatsApp</span>
+              <span>{isSubmitting ? 'Confirmando pedido...' : 'Confirmar Pedido por WhatsApp'}</span>
             </button>
           </div>
         )}
