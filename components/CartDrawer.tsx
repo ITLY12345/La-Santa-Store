@@ -60,7 +60,7 @@ export function CartDrawer({
     if (shippingOption === 'recoger') {
       return {
         costo: 0,
-        label: 'Recoger en Sede Oficial (Cartagena de Indias)',
+        label: 'Recoger en Punto de Venta',
         badge: 'Gratis',
       };
     }
@@ -71,15 +71,15 @@ export function CartDrawer({
         badge: formatCOP(rateNacional),
       };
     }
-    // Cartagena Urbano
+    // Envío Local
     const isFree = cartSubtotal >= freeCartagenaThreshold;
     return {
       costo: isFree ? 0 : rateCartagena,
       label: isFree
-        ? `Domicilio Express Cartagena (Gratis por compra ≥ ${formatCOP(
+        ? `Domicilio Express Local (Gratis por compra ≥ ${formatCOP(
             freeCartagenaThreshold
           )})`
-        : 'Domicilio Express Urbano (Cartagena de Indias)',
+        : 'Domicilio Express Local',
       badge: isFree ? 'Gratis' : formatCOP(rateCartagena),
     };
   }, [
@@ -102,7 +102,7 @@ export function CartDrawer({
     const effectiveAddress =
       shippingOption === 'recoger'
         ? clienteDireccion.trim() ||
-          'Recoger en Sede Oficial · Cartagena de Indias'
+          'Recoger en Punto de Venta'
         : clienteDireccion.trim();
 
     if (cleanName.length < 3) {
@@ -358,7 +358,7 @@ export function CartDrawer({
                     }`}
                   >
                     <span className="text-[11px] font-bold leading-tight">
-                      Cartagena Urbano
+                      Envío Local
                     </span>
                     <span
                       className={`text-[10px] font-semibold mt-1 ${
@@ -367,7 +367,9 @@ export function CartDrawer({
                           : 'text-zinc-500'
                       }`}
                     >
-                      {cartSubtotal >= 200000 ? 'Gratis' : '$8.000'}
+                      {cartSubtotal >= (storeConfig.envioGratisDesde ?? 200000)
+                        ? 'Gratis'
+                        : formatCOP(storeConfig.tarifaEnvioCartagena ?? 8000)}
                     </span>
                   </button>
 
@@ -390,7 +392,7 @@ export function CartDrawer({
                           : 'text-zinc-500'
                       }`}
                     >
-                      $16.000
+                      {formatCOP(storeConfig.tarifaEnvioNacional ?? 16000)}
                     </span>
                   </button>
 
@@ -404,7 +406,7 @@ export function CartDrawer({
                     }`}
                   >
                     <span className="text-[11px] font-bold leading-tight flex items-center gap-1">
-                      <Store className="w-3 h-3 shrink-0" /> Sede
+                      <Store className="w-3 h-3 shrink-0" /> En Tienda
                     </span>
                     <span
                       className={`text-[10px] font-semibold mt-1 ${
@@ -479,10 +481,10 @@ export function CartDrawer({
                       }}
                       placeholder={
                         shippingOption === 'recoger'
-                          ? 'Barrio / Nota adicional (Retiro en Sede Cartagena)'
+                          ? 'Barrio / Nota adicional (Retiro en Punto de Venta)'
                           : shippingOption === 'nacional'
                           ? 'Dirección exacta, Barrio, Ciudad y Departamento *'
-                          : 'Dirección en Cartagena, Barrio y Edificio/Casa *'
+                          : 'Dirección de entrega, Barrio y Edificio/Casa *'
                       }
                       required={shippingOption !== 'recoger'}
                       className="w-full bg-white rounded-xl pl-9 pr-3 py-2.5 text-xs text-[#111111] placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#111111]/15"

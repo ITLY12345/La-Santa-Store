@@ -18,7 +18,6 @@ import {
   Package,
   TrendingUp,
   Settings,
-  AlertTriangle,
   Lock,
   Plus,
   Minus,
@@ -52,7 +51,6 @@ export function AdminDashboard() {
     updateProductAlertThreshold,
     resetToInitialCatalog,
     orders,
-    criticalAlerts,
     storeConfig,
     updateStoreConfig,
     plugins,
@@ -72,8 +70,11 @@ export function AdminDashboard() {
     'Todas' | 'Chanclas' | 'Camisetas' | 'Bolsos'
   >('Todas');
   const [inventorySearch, setInventorySearch] = useState('');
-  const [onlyCriticalAlerts, setOnlyCriticalAlerts] = useState(false);
   const [adminToastMsg, setAdminToastMsg] = useState<string | null>(null);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const savingProductRef = React.useRef(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const savingSettingsRef = React.useRef(false);
 
   // Product Create / Edit Modal with Photos, COGS & IVA State
   const [showProductModal, setShowProductModal] = useState(false);
@@ -129,6 +130,25 @@ export function AdminDashboard() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
+
+  const openSettingsTab = () => {
+    setNewStoreName(storeConfig.storeName);
+    setNewStoreNit(storeConfig.storeNit);
+    setNewPhone(storeConfig.storePhone);
+    setNewAddress(storeConfig.storeAddress);
+    setNewTagline(storeConfig.corporateTagline);
+    setNewRegimen(storeConfig.regimenTributario || 'Responsable de IVA (19%)');
+    setNewResolucion(
+      storeConfig.resolucionFacturacion ||
+        'Resolución DIAN 18764000012345 · Vigencia 2026'
+    );
+    setNewPrefijo(storeConfig.prefijoFactura || 'FAC');
+    setNewRango(storeConfig.rangoAutorizado || 'FAC-1000 a FAC-9999');
+    setNewTarifaCartagena(storeConfig.tarifaEnvioCartagena ?? 8000);
+    setNewTarifaNacional(storeConfig.tarifaEnvioNacional ?? 16000);
+    setNewEnvioGratisDesde(storeConfig.envioGratisDesde ?? 200000);
+    setActiveTab('settings');
+  };
 
   const showToast = (msg: string) => {
     setAdminToastMsg(msg);
@@ -306,6 +326,7 @@ export function AdminDashboard() {
 
   const handleSaveProductModal = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savingProductRef.current || isSavingProduct) return;
     setProdModalError(null);
 
     if (!prodNombre.trim()) {
@@ -317,47 +338,67 @@ export function AdminDashboard() {
       return;
     }
 
-    const finalImages = [...prodImagenes];
-    if (prodImagenUrlInput.trim() && finalImages.length < 8) {
-      finalImages.push(prodImagenUrlInput.trim());
-    }
-    if (finalImages.length === 0) {
-      finalImages.push(
-        'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85'
-      );
-    }
+    savingProductRef.current = true;
+    setIsSavingProduct(true);
 
-    const payload: Omit<Producto, 'id'> = {
-      referencia: prodReferencia.trim() || 'REF-GEN',
-      nombre: prodNombre.trim(),
-      categoria: prodCategoria,
-      marca_motivo: prodMarca.trim() || 'Colección Oficial',
-      descripcion:
-        prodDescripcion.trim() ||
-        'Prenda de diseño minimalista con disponibilidad en tiempo real.',
-      imagenes: finalImages.slice(0, 8),
-      precio_base: Math.max(0, Number(prodPrecio) || 0),
-      precio_mayorista:
-        Number(prodPrecioMayorista) > 0
-          ? Math.max(0, Number(prodPrecioMayorista) || 0)
-          : undefined,
-      costo_unitario: Math.max(0, Number(prodCostoUnitario) || 0),
-      iva_porcentaje: Math.max(0, Number(prodIvaPorcentaje ?? 19)),
-      configuracion_alertas: {
-        stock_minimo_alerta: Math.max(1, Number(prodAlertaMin) || 3),
-      },
-      variantes: prodVariantes,
-    };
+    try {
+      const finalImages = [...prodImagenes];
+      if (prodImagenUrlInput.trim() && finalImages.length < 8) {
+        finalImages.push(prodImagenUrlInput.trim());
+      }
+      if (finalImages.length === 0) {
+        finalImages.push(
+          'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85'
+        );
+      }
 
-    if (editingProductId) {
-      await updateProduct({ ...payload, id: editingProductId });
-      showToast(`Producto "${payload.nombre}" actualizado en el inventario POS.`);
-    } else {
-      await createProduct(payload);
-      showToast(`Producto "${payload.nombre}" creado con éxito en el inventario POS.`);
+      const payload: Omit<Producto, 'id'> = {
+        referencia: prodReferencia.trim() || 'REF-GEN',
+        nombre: prodNombre.trim(),
+        categoria: prodCategoria,
+        marca_motivo: prodMarca.trim() || 'Colección Oficial',
+        descripcion:
+          prodDescripcion.trim() ||
+          'Prenda de diseño minimalista con disponibilidad en tiempo real.',
+        imagenes: finalImages.slice(0, 8),
+        precio_base: Math.max(0, Number(prodPrecio) || 0),
+        precio_mayorista:
+          Number(prodPrecioMayorista) > 0
+            ? Math.max(0, Number(prodPrecioMayorista) || 0)
+            : undefined,
+        costo_unitario: Math.max(0, Number(prodCostoUnitario) || 0),
+        iva_porcentaje: Math.max(0, Number(prodIvaPorcentaje ?? 19)),
+        configuracion_alertas: {
+          stock_minimo_alerta: Math.max(1, Number(prodAlertaMin) || 3),
+        },
+        variantes: prodVariantes,
+      };
+
+      if (editingProductId) {
+        const res = await updateProduct({ ...payload, id: editingProductId });
+        if (!res.success) {
+          setProdModalError(
+            res.message || 'No se pudo guardar el producto en el servidor.'
+          );
+          return;
+        }
+        showToast(`Producto "${payload.nombre}" actualizado en el inventario POS.`);
+      } else {
+        const res = await createProduct(payload);
+        if (!res.success) {
+          setProdModalError(
+            res.message || 'No se pudo crear el producto en el servidor.'
+          );
+          return;
+        }
+        showToast(`Producto "${payload.nombre}" creado con éxito en el inventario POS.`);
+      }
+
+      setShowProductModal(false);
+    } finally {
+      savingProductRef.current = false;
+      setIsSavingProduct(false);
     }
-
-    setShowProductModal(false);
   };
 
   const handleConfirmDeleteProduct = async () => {
@@ -376,10 +417,6 @@ export function AdminDashboard() {
       const matchRef = p.referencia?.toLowerCase().includes(q) ?? false;
       const matchBrand = p.marca_motivo.toLowerCase().includes(q);
       if (!matchName && !matchRef && !matchBrand) return false;
-    }
-    if (onlyCriticalAlerts) {
-      const minThresh = p.configuracion_alertas?.stock_minimo_alerta ?? 3;
-      return p.variantes.some((v) => v.stock_disponible <= minThresh);
     }
     return true;
   });
@@ -409,6 +446,7 @@ export function AdminDashboard() {
 
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savingSettingsRef.current || isSavingSettings) return;
     setSettingsError(null);
 
     if (newPin.trim().length > 0 && newPin.trim().length < 4) {
@@ -422,36 +460,43 @@ export function AdminDashboard() {
       return;
     }
 
-    const res = await updateStoreConfig(
-      {
-        storeName: newStoreName.trim() || 'La Santa Store',
-        storeNit: newStoreNit.trim() || '901.482.319-4',
-        storePhone: newPhone.trim(),
-        storeAddress:
-          newAddress.trim() ||
-          'Cartagena de Indias, Colombia · Despachos Nacionales',
-        corporateTagline: newTagline.trim(),
-        regimenTributario: newRegimen.trim() || 'Responsable de IVA (19%)',
-        resolucionFacturacion: newResolucion.trim(),
-        prefijoFactura: newPrefijo.trim().toUpperCase() || 'FAC',
-        rangoAutorizado: newRango.trim(),
-        tarifaEnvioCartagena: Math.max(0, Number(newTarifaCartagena) || 0),
-        tarifaEnvioNacional: Math.max(0, Number(newTarifaNacional) || 0),
-        envioGratisDesde: Math.max(0, Number(newEnvioGratisDesde) || 0),
-        ...(newPin.trim().length >= 4 ? { adminPin: newPin.trim() } : {}),
-      },
-      currentPinForChange.trim() || undefined
-    );
+    savingSettingsRef.current = true;
+    setIsSavingSettings(true);
 
-    if (!res.success) {
-      setSettingsError(res.message || 'No se pudo guardar la configuración.');
-      return;
+    try {
+      const res = await updateStoreConfig(
+        {
+          storeName: newStoreName.trim() || 'La Santa Store',
+          storeNit: newStoreNit.trim() || '901.482.319-4',
+          storePhone: newPhone.trim(),
+          storeAddress: newAddress.trim(),
+          corporateTagline: newTagline.trim(),
+          regimenTributario: newRegimen.trim() || 'Responsable de IVA (19%)',
+          resolucionFacturacion: newResolucion.trim(),
+          prefijoFactura: newPrefijo.trim().toUpperCase() || 'FAC',
+          rangoAutorizado: newRango.trim(),
+          tarifaEnvioCartagena: Math.max(0, Number(newTarifaCartagena) || 0),
+          tarifaEnvioNacional: Math.max(0, Number(newTarifaNacional) || 0),
+          envioGratisDesde: Math.max(0, Number(newEnvioGratisDesde) || 0),
+          ...(newPin.trim().length >= 4 ? { adminPin: newPin.trim() } : {}),
+        },
+        currentPinForChange.trim() || undefined
+      );
+
+      if (!res.success) {
+        setSettingsError(res.message || 'No se pudo guardar la configuración.');
+        return;
+      }
+
+      setCurrentPinForChange('');
+      setNewPin('');
+      setSettingsSuccess(true);
+      showToast('Configuración sincronizada correctamente.');
+      setTimeout(() => setSettingsSuccess(false), 3000);
+    } finally {
+      savingSettingsRef.current = false;
+      setIsSavingSettings(false);
     }
-
-    setCurrentPinForChange('');
-    setNewPin('');
-    setSettingsSuccess(true);
-    setTimeout(() => setSettingsSuccess(false), 3000);
   };
 
   const handleExportAccountingBackup = (format: 'json' | 'csv') => {
@@ -567,7 +612,7 @@ export function AdminDashboard() {
               </div>
               <div>
                 <h1 className="text-sm sm:text-base font-extrabold text-[#111111]">
-                  Consola Administrativa POS & ERP · Cartagena
+                  Consola Administrativa POS &amp; ERP
                 </h1>
                 <p className="text-[11px] text-zinc-500 hidden sm:block">
                   Facturación POS · Inventario Kardex · Notificaciones Push · Plugins API
@@ -610,10 +655,10 @@ export function AdminDashboard() {
             <div className="space-y-1">
               <div className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                 <Lock className="w-3 h-3" />
-                <span>Sede Cartagena de Indias</span>
+                <span>Acceso Administrativo</span>
               </div>
               <h2 className="text-lg font-extrabold text-[#111111]">
-                Acceso al Sistema POS & ERP
+                Acceso al Sistema POS &amp; ERP
               </h2>
               <p className="text-xs text-zinc-500">
                 Ingresa tu código PIN de seguridad para operar la facturación, el inventario y los despachos.
@@ -722,7 +767,7 @@ export function AdminDashboard() {
             </button>
 
             <button
-              onClick={() => setActiveTab('settings')}
+              onClick={openSettingsTab}
               className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-full whitespace-nowrap transition-all ${
                 activeTab === 'settings'
                   ? 'bg-[#111111] text-white'
@@ -730,7 +775,7 @@ export function AdminDashboard() {
               }`}
             >
               <Settings className="w-4 h-4" />
-              <span>Configuración Cartagena</span>
+              <span>Configuración</span>
             </button>
           </div>
 
@@ -763,28 +808,6 @@ export function AdminDashboard() {
                   <span>Nuevo Producto con Foto</span>
                 </button>
               </div>
-
-              {criticalAlerts.length > 0 && (
-                <div className="p-4 rounded-3xl bg-[#F5F5F7] border border-zinc-200 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-start gap-2.5">
-                    <AlertTriangle className="w-5 h-5 text-[#111111] shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="text-xs font-bold text-[#111111]">
-                        {criticalAlerts.length} Variantes en Nivel de Stock Crítico en Bodega Cartagena
-                      </h4>
-                      <p className="text-[11px] text-zinc-500 mt-0.5">
-                        Las unidades se descuentan automáticamente al emitir facturas y se reintegran mediante Nota Crédito en caso de anulación.
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setOnlyCriticalAlerts(!onlyCriticalAlerts)}
-                    className="px-4 py-1.5 rounded-full bg-[#111111] text-white text-xs font-bold"
-                  >
-                    {onlyCriticalAlerts ? 'Mostrar Todos' : 'Ver Solo Críticos'}
-                  </button>
-                </div>
-              )}
 
               <div className="flex flex-wrap items-center justify-between gap-3 bg-[#F5F5F7] p-3 rounded-3xl">
                 <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
@@ -1040,7 +1063,7 @@ export function AdminDashboard() {
               <div className="bg-[#F5F5F7] rounded-3xl p-5 flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-1 max-w-2xl">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
-                    Arquitectura Backend API REST · Sede Cartagena
+                    Arquitectura Backend API REST
                   </span>
                   <h2 className="text-base sm:text-lg font-extrabold text-[#111111]">
                     Centro de Plugins, Pasarelas de Pago y Conectores Logísticos
@@ -1199,7 +1222,7 @@ export function AdminDashboard() {
 
                 <div className="bg-[#F5F5F7] p-4 rounded-3xl">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">
-                    Inventario en Cartagena
+                    Existencias en Bodega
                   </span>
                   <p className="text-xl font-extrabold text-[#111111] tabular-nums mt-1">
                     {totalStockActualBodega} un.
@@ -1254,67 +1277,6 @@ export function AdminDashboard() {
                   })}
                 </div>
               </div>
-
-              {/* Reglas de Reabastecimiento Automático (Odoo stock.warehouse.orderpoint) */}
-              {criticalAlerts.length > 0 && (
-                <div className="bg-[#F5F5F7] rounded-3xl p-5 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-xs font-bold text-[#111111] uppercase tracking-wider">
-                        Reglas de Reabastecimiento Automático (stock.warehouse.orderpoint)
-                      </h4>
-                      <p className="text-[11px] text-zinc-500">
-                        Sugerencias automáticas de reposición para alcanzar el stock objetivo de seguridad (15 un.) en bodega Cartagena.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
-                    {criticalAlerts.map((al) => {
-                      const targetMax =
-                        al.producto.configuracion_alertas?.stock_maximo_objetivo || 15;
-                      const suggestedOrderQty = Math.max(
-                        1,
-                        targetMax - al.variante.stock_disponible
-                      );
-                      return (
-                        <div
-                          key={`${al.producto.id}-${al.variante.id_variante}`}
-                          className="p-3.5 rounded-2xl bg-white flex items-center justify-between gap-3 border border-zinc-200/70"
-                        >
-                          <div>
-                            <p className="font-bold text-[#111111]">
-                              {al.producto.nombre} ({al.variante.talla} · {al.variante.color})
-                            </p>
-                            <p className="text-[11px] text-zinc-500 font-mono">
-                              SKU: {al.variante.sku || al.variante.id_variante} · Actual:{' '}
-                              <strong className="text-amber-600">
-                                {al.variante.stock_disponible} un.
-                              </strong>{' '}
-                              / Meta: {targetMax} un.
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              updateVariantStock(
-                                al.producto.id,
-                                al.variante.id_variante,
-                                targetMax
-                              );
-                              showToast(
-                                `Reabastecido +${suggestedOrderQty} un. de ${al.producto.nombre} (${al.variante.talla}) en Kardex.`
-                              );
-                            }}
-                            className="px-3.5 py-2 rounded-full bg-[#111111] text-white font-bold text-[11px] hover:bg-zinc-800 transition shrink-0"
-                          >
-                            Reabastecer +{suggestedOrderQty} un.
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
 
               {/* Kardex Inmutable de Movimientos de Almacén (Odoo stock.move / erp_stock_moves) */}
               <div className="bg-[#F5F5F7] rounded-3xl p-5 space-y-3">
@@ -1405,7 +1367,7 @@ export function AdminDashboard() {
             </div>
           )}
 
-          {/* TAB 5: CONFIGURACIÓN CORPORATIVA CARTAGENA */}
+          {/* TAB 5: CONFIGURACIÓN CORPORATIVA */}
           {activeTab === 'settings' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <form
@@ -1413,7 +1375,7 @@ export function AdminDashboard() {
                 className="bg-[#F5F5F7] rounded-3xl p-5 space-y-4"
               >
                 <h3 className="text-sm font-extrabold text-[#111111]">
-                  Datos Corporativos y Sede Cartagena de Indias
+                  Datos Corporativos y Configuración General
                 </h3>
 
                 <div>
@@ -1442,7 +1404,7 @@ export function AdminDashboard() {
 
                 <div>
                   <label className="text-xs font-semibold text-zinc-600 block mb-1">
-                    Ciudad Base de Operaciones y Despachos
+                    Dirección / Ubicación Operativa
                   </label>
                   <div className="relative">
                     <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
@@ -1536,7 +1498,7 @@ export function AdminDashboard() {
                 <div className="grid grid-cols-3 gap-2.5 pt-2 border-t border-zinc-200">
                   <div>
                     <label className="text-[11px] font-semibold text-zinc-600 block mb-1">
-                      Envío Cartagena ($)
+                      Envío Local ($)
                     </label>
                     <input
                       type="text"
@@ -1623,9 +1585,10 @@ export function AdminDashboard() {
                 <div className="flex items-center gap-3 pt-1">
                   <button
                     type="submit"
-                    className="py-3 px-6 bg-[#111111] text-white font-bold text-xs rounded-full hover:bg-zinc-800 transition"
+                    disabled={isSavingSettings}
+                    className="py-3 px-6 bg-[#111111] text-white font-bold text-xs rounded-full hover:bg-zinc-800 transition disabled:opacity-50"
                   >
-                    Guardar Parámetros ERP
+                    {isSavingSettings ? 'Guardando...' : 'Guardar Parámetros ERP'}
                   </button>
                   {settingsSuccess && (
                     <span className="text-xs text-[#111111] font-semibold">
@@ -1669,7 +1632,7 @@ export function AdminDashboard() {
                     Restauración de Catálogo Base
                   </h4>
                   <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
-                    Si deseas reiniciar las pruebas de inventario, facturación POS y notificaciones push a su estado limpio inicial en Cartagena de Indias, puedes restablecer la base de datos del servidor.
+                    Si deseas reiniciar las pruebas de inventario, facturación POS y notificaciones push a su estado limpio inicial, puedes restablecer la base de datos del servidor.
                   </p>
                 </div>
 
@@ -1865,7 +1828,7 @@ export function AdminDashboard() {
                     required
                     value={prodNombre}
                     onChange={(e) => setProdNombre(e.target.value)}
-                    placeholder="Ej. Camiseta Algodón Egipcio Cartagena"
+                    placeholder="Ej. Camiseta Algodón Egipcio"
                     className="w-full bg-[#F5F5F7] rounded-xl px-3 py-2 text-[#111111] font-bold"
                   />
                 </div>
@@ -2143,16 +2106,22 @@ export function AdminDashboard() {
             <div className="flex gap-2.5 pt-2">
               <button
                 type="button"
+                disabled={isSavingProduct}
                 onClick={() => setShowProductModal(false)}
-                className="w-1/3 py-3 rounded-full bg-[#F5F5F7] text-xs font-bold text-[#111111]"
+                className="w-1/3 py-3 rounded-full bg-[#F5F5F7] text-xs font-bold text-[#111111] disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="w-2/3 py-3 rounded-full bg-[#111111] text-white font-bold text-xs"
+                disabled={isSavingProduct}
+                className="w-2/3 py-3 rounded-full bg-[#111111] text-white font-bold text-xs disabled:opacity-50"
               >
-                {editingProductId ? 'Guardar Cambios del Producto' : 'Crear Producto en Inventario'}
+                {isSavingProduct
+                  ? 'Guardando en Inventario...'
+                  : editingProductId
+                  ? 'Guardar Cambios del Producto'
+                  : 'Crear Producto en Inventario'}
               </button>
             </div>
           </form>

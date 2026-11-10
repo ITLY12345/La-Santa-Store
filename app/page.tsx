@@ -383,11 +383,10 @@ export default function Home() {
                     setSelectedSizeFilter('Todas');
                     setSelectedColorFilter('Todos');
                   }}
-                  className={`px-5 py-2.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all active:scale-95 ${
-                    isSelected
+                  className={`px-5 py-2.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all active:scale-95 ${isSelected
                       ? 'bg-[#111111] text-white shadow-xs'
                       : 'bg-[#F5F5F7] text-zinc-600 hover:text-[#111111]'
-                  }`}
+                    }`}
                 >
                   {cat.label}
                 </button>
@@ -400,57 +399,57 @@ export default function Home() {
             selectedColorFilter !== 'Todos' ||
             sortByPrice !== 'relevancia' ||
             onlyInStock) && (
-            <div className="flex items-center gap-2 flex-wrap pt-1">
-              {selectedSizeFilter !== 'Todas' && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F5F7] text-xs font-semibold text-[#111111]">
-                  Talla: {selectedSizeFilter}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedSizeFilter('Todas')}
-                    aria-label="Quitar filtro de talla"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              {selectedColorFilter !== 'Todos' && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F5F7] text-xs font-semibold text-[#111111]">
-                  Color: {selectedColorFilter}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedColorFilter('Todos')}
-                    aria-label="Quitar filtro de color"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              {sortByPrice !== 'relevancia' && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F5F7] text-xs font-semibold text-[#111111]">
-                  {sortByPrice === 'precio_asc' ? 'Menor a mayor precio' : 'Mayor a menor precio'}
-                  <button
-                    type="button"
-                    onClick={() => setSortByPrice('relevancia')}
-                    aria-label="Quitar orden de precio"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              {onlyInStock && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F5F7] text-xs font-semibold text-[#111111]">
-                  Solo con stock
-                  <button
-                    type="button"
-                    onClick={() => setOnlyInStock(false)}
-                    aria-label="Quitar filtro de stock"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-            </div>
-          )}
+              <div className="flex items-center gap-2 flex-wrap pt-1">
+                {selectedSizeFilter !== 'Todas' && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F5F7] text-xs font-semibold text-[#111111]">
+                    Talla: {selectedSizeFilter}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSizeFilter('Todas')}
+                      aria-label="Quitar filtro de talla"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+                {selectedColorFilter !== 'Todos' && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F5F7] text-xs font-semibold text-[#111111]">
+                    Color: {selectedColorFilter}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedColorFilter('Todos')}
+                      aria-label="Quitar filtro de color"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+                {sortByPrice !== 'relevancia' && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F5F7] text-xs font-semibold text-[#111111]">
+                    {sortByPrice === 'precio_asc' ? 'Menor a mayor precio' : 'Mayor a menor precio'}
+                    <button
+                      type="button"
+                      onClick={() => setSortByPrice('relevancia')}
+                      aria-label="Quitar orden de precio"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+                {onlyInStock && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F5F5F7] text-xs font-semibold text-[#111111]">
+                    Solo con stock
+                    <button
+                      type="button"
+                      onClick={() => setOnlyInStock(false)}
+                      aria-label="Quitar filtro de stock"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+              </div>
+            )}
         </section>
 
         {/* Product Grid (2 Columns on Mobile like Dribbble #27573251, 3 on Desktop) */}
@@ -512,11 +511,10 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setActiveNavTab('home')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold transition ${
-              activeNavTab === 'home'
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold transition ${activeNavTab === 'home'
                 ? 'bg-white text-[#111111]'
                 : 'text-zinc-400 hover:text-white'
-            }`}
+              }`}
           >
             <HomeIcon className="w-4 h-4" />
             <span>Inicio</span>
@@ -526,11 +524,10 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setActiveNavTab('favorites')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold transition relative ${
-              activeNavTab === 'favorites'
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold transition relative ${activeNavTab === 'favorites'
                 ? 'bg-white text-[#111111]'
                 : 'text-zinc-400 hover:text-white'
-            }`}
+              }`}
           >
             <Heart className="w-4 h-4" />
             <span className="hidden sm:inline">Favoritos</span>
@@ -701,11 +698,10 @@ export default function Home() {
                         setSelectedSizeFilter('Todas');
                         setSelectedColorFilter('Todos');
                       }}
-                      className={`py-2.5 px-3 rounded-full text-xs font-semibold transition ${
-                        isSelected
+                      className={`py-2.5 px-3 rounded-full text-xs font-semibold transition ${isSelected
                           ? 'bg-[#111111] text-white'
                           : 'bg-[#F5F5F7] text-[#111111] hover:bg-zinc-200/70'
-                      }`}
+                        }`}
                     >
                       {cat}
                     </button>
@@ -732,11 +728,10 @@ export default function Home() {
                     key={opt.id}
                     type="button"
                     onClick={() => setSortByPrice(opt.id)}
-                    className={`py-2.5 px-2 rounded-full text-xs font-semibold transition ${
-                      sortByPrice === opt.id
+                    className={`py-2.5 px-2 rounded-full text-xs font-semibold transition ${sortByPrice === opt.id
                         ? 'bg-[#111111] text-white'
                         : 'bg-[#F5F5F7] text-[#111111] hover:bg-zinc-200/70'
-                    }`}
+                      }`}
                   >
                     {opt.label}
                   </button>
@@ -753,11 +748,10 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setSelectedSizeFilter('Todas')}
-                  className={`py-2.5 rounded-full text-xs font-semibold transition ${
-                    selectedSizeFilter === 'Todas'
+                  className={`py-2.5 rounded-full text-xs font-semibold transition ${selectedSizeFilter === 'Todas'
                       ? 'bg-[#111111] text-white'
                       : 'bg-[#F5F5F7] text-[#111111] hover:bg-zinc-200/70'
-                  }`}
+                    }`}
                 >
                   Todas
                 </button>
@@ -766,11 +760,10 @@ export default function Home() {
                     key={sz}
                     type="button"
                     onClick={() => setSelectedSizeFilter(sz)}
-                    className={`py-2.5 rounded-full text-xs font-semibold transition ${
-                      selectedSizeFilter === sz
+                    className={`py-2.5 rounded-full text-xs font-semibold transition ${selectedSizeFilter === sz
                         ? 'bg-[#111111] text-white'
                         : 'bg-[#F5F5F7] text-[#111111] hover:bg-zinc-200/70'
-                    }`}
+                      }`}
                   >
                     {sz}
                   </button>
@@ -787,11 +780,10 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setSelectedColorFilter('Todos')}
-                  className={`px-4 py-2 rounded-full text-xs font-semibold transition ${
-                    selectedColorFilter === 'Todos'
+                  className={`px-4 py-2 rounded-full text-xs font-semibold transition ${selectedColorFilter === 'Todos'
                       ? 'bg-[#111111] text-white'
                       : 'bg-[#F5F5F7] text-[#111111] hover:bg-zinc-200/70'
-                  }`}
+                    }`}
                 >
                   Todos
                 </button>
@@ -800,11 +792,10 @@ export default function Home() {
                     key={clr}
                     type="button"
                     onClick={() => setSelectedColorFilter(clr)}
-                    className={`px-4 py-2 rounded-full text-xs font-semibold transition ${
-                      selectedColorFilter === clr
+                    className={`px-4 py-2 rounded-full text-xs font-semibold transition ${selectedColorFilter === clr
                         ? 'bg-[#111111] text-white'
                         : 'bg-[#F5F5F7] text-[#111111] hover:bg-zinc-200/70'
-                    }`}
+                      }`}
                   >
                     {clr}
                   </button>
@@ -817,17 +808,15 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => setOnlyInStock(!onlyInStock)}
-                className={`w-full p-3.5 rounded-2xl flex items-center justify-between text-xs font-semibold transition ${
-                  onlyInStock
+                className={`w-full p-3.5 rounded-2xl flex items-center justify-between text-xs font-semibold transition ${onlyInStock
                     ? 'bg-[#111111] text-white'
                     : 'bg-[#F5F5F7] text-[#111111] hover:bg-zinc-200/70'
-                }`}
+                  }`}
               >
                 <span>Mostrar solo productos con stock disponible</span>
                 <span
-                  className={`w-5 h-5 rounded-full flex items-center justify-center ${
-                    onlyInStock ? 'bg-white text-[#111111]' : 'bg-white border border-zinc-300'
-                  }`}
+                  className={`w-5 h-5 rounded-full flex items-center justify-center ${onlyInStock ? 'bg-white text-[#111111]' : 'bg-white border border-zinc-300'
+                    }`}
                 >
                   {onlyInStock && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                 </span>

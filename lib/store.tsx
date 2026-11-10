@@ -676,6 +676,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const createProduct = async (
     productData: Omit<Producto, 'id'>
   ): Promise<{ success: boolean; product?: Producto; message?: string }> => {
+    const previousProducts = structuredClone(products);
     const newProd: Producto = {
       ...productData,
       id: `prod-${Date.now()}`,
@@ -690,20 +691,32 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify(newProd),
       });
       const data = await res.json();
-      if (data.success && Array.isArray(data.products)) {
+      if (!res.ok || !data.success) {
+        saveProductsLocal(previousProducts);
+        return {
+          success: false,
+          message: data.message || 'No se pudo guardar el producto en el servidor.',
+        };
+      }
+      if (Array.isArray(data.products)) {
         saveProductsLocal(data.products);
       }
+      return { success: true, product: data.product || newProd };
     } catch (e) {
       console.error(e);
+      saveProductsLocal(previousProducts);
+      return {
+        success: false,
+        message: 'Error de red al guardar el producto.',
+      };
     }
-
-    return { success: true, product: newProd };
   };
 
   // POS Inventory CRUD: Update Product
   const updateProduct = async (
     updatedProduct: Producto
   ): Promise<{ success: boolean; message?: string }> => {
+    const previousProducts = structuredClone(products);
     const nextList = products.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
     saveProductsLocal(nextList);
 
@@ -714,14 +727,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ product: updatedProduct }),
       });
       const data = await res.json();
-      if (data.success && Array.isArray(data.products)) {
+      if (!res.ok || !data.success) {
+        saveProductsLocal(previousProducts);
+        return {
+          success: false,
+          message: data.message || 'No se pudo actualizar el producto en el servidor.',
+        };
+      }
+      if (Array.isArray(data.products)) {
         saveProductsLocal(data.products);
       }
+      return { success: true };
     } catch (e) {
       console.error(e);
+      saveProductsLocal(previousProducts);
+      return {
+        success: false,
+        message: 'Error de red al actualizar el producto.',
+      };
     }
-
-    return { success: true };
   };
 
   // POS Inventory CRUD: Delete Product

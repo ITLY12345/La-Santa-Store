@@ -79,7 +79,7 @@ export function POSDashboard({}: POSDashboardProps) {
   const [posClienteNombre, setPosClienteNombre] = useState('');
   const [posClienteDoc, setPosClienteDoc] = useState('');
   const [posClienteTel, setPosClienteTel] = useState('');
-  const [posClienteDir, setPosClienteDir] = useState('Cartagena de Indias, Colombia');
+  const [posClienteDir, setPosClienteDir] = useState('');
   const [posTransportadora, setPosTransportadora] = useState('');
   const [posGuia, setPosGuia] = useState('');
   const [posCostoEnvio, setPosCostoEnvio] = useState<number>(0);
@@ -319,10 +319,10 @@ export function POSDashboard({}: POSDashboardProps) {
         posClienteNombre ||
         (posModalidad === 'Consignación'
           ? 'Aliado / Punto en Consignación'
-          : 'Cliente Mostrador Cartagena'),
+          : 'Cliente Mostrador'),
       clienteDocumento: posClienteDoc || '222222222222',
       clienteTelefono: posClienteTel,
-      clienteDireccion: posClienteDir || 'Punto de Venta Cartagena de Indias',
+      clienteDireccion: posClienteDir || storeConfig.storeAddress || 'Punto de Venta Principal',
       transportadora: posTransportadora,
       guiaSeguimiento: posGuia,
       items: posItems,
@@ -349,7 +349,7 @@ export function POSDashboard({}: POSDashboardProps) {
     setPosClienteNombre('');
     setPosClienteDoc('');
     setPosClienteTel('');
-    setPosClienteDir('Cartagena de Indias, Colombia');
+    setPosClienteDir('');
     setPosTransportadora('');
     setPosGuia('');
     setPosCostoEnvio(0);
@@ -659,8 +659,7 @@ export function POSDashboard({}: POSDashboardProps) {
             Terminal POS, Cartera &amp; Traslados de Bodega
           </h1>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Sede Central: <strong>{storeConfig.storeCity}</strong> · Consecutivo Activo: FAC-
-            {storeConfig.nextInvoiceSequence}
+            Consecutivo Activo: <strong>FAC-{storeConfig.nextInvoiceSequence}</strong>
           </p>
         </div>
 
@@ -1037,7 +1036,7 @@ export function POSDashboard({}: POSDashboardProps) {
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="text-zinc-500 font-medium">Envío:</span>
                           <span className="font-bold text-[#111111]">
-                            {inv.costoEnvio > 0 ? formatCOP(inv.costoEnvio) : 'Local Cartagena'}
+                            {inv.costoEnvio > 0 ? formatCOP(inv.costoEnvio) : 'Envío Local / Tienda'}
                           </span>
                         </div>
                       </div>

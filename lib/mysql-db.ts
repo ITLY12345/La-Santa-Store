@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS erp_stock_moves (
   producto_nombre VARCHAR(180) DEFAULT '',
   order_id VARCHAR(64) NULL,
   documento_ref VARCHAR(64) DEFAULT '',
-  tipo_movimiento ENUM('ENTRADA_COMPRA', 'RESERVA_PEDIDO', 'LIBERACION_RESERVA', 'SALIDA_VENTA', 'DEVOLUCION_NC', 'AJUSTE_INVENTARIO') NOT NULL,
+  tipo_movimiento VARCHAR(64) NOT NULL,
   cantidad INT NOT NULL,
   stock_anterior INT NOT NULL,
   stock_resultante INT NOT NULL,

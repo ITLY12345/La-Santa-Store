@@ -189,7 +189,7 @@ export function OrderTrackerModal({ isOpen, onClose }: OrderTrackerModalProps) {
                 Notificaciones Push y Rastreo
               </h2>
               <p className="text-[11px] text-zinc-500">
-                Centro Logístico Cartagena de Indias · Alertas de Despacho y Entrega
+                Alertas de Despacho y Entrega en Tiempo Real
               </p>
             </div>
           </div>
@@ -302,7 +302,7 @@ export function OrderTrackerModal({ isOpen, onClose }: OrderTrackerModalProps) {
                   Aún no hay alertas de despacho registradas
                 </p>
                 <p className="text-[11px] text-zinc-500 max-w-xs mx-auto">
-                  Cuando tu pedido de WhatsApp pase a estado Despachado o Entregado en nuestra sede de Cartagena, aparecerá aquí.
+                  Cuando tu pedido de WhatsApp pase a estado Despachado o Entregado, aparecerá aquí.
                 </p>
               </div>
             ) : (

@@ -32,13 +32,13 @@ export function StoreFooter() {
                   {storeConfig.storeName}
                 </h3>
                 <p className="text-[11px] text-zinc-500">
-                  NIT: {storeConfig.storeNit || '901.482.319-4'} · Sede Cartagena de Indias
+                  NIT: {storeConfig.storeNit || '901.482.319-4'}
                 </p>
               </div>
             </div>
             <p className="text-xs text-zinc-600 leading-relaxed max-w-sm">
               {storeConfig.corporateTagline ||
-                'Firma colombiana de moda urbana y marroquinería contemporánea con centro de operaciones en Cartagena de Indias. Distribución nacional garantizada, control de existencias en tiempo real y atención personalizada.'}
+                'Firma colombiana de moda urbana y marroquinería contemporánea. Distribución nacional garantizada, control de existencias en tiempo real y atención personalizada.'}
             </p>
           </div>
 
@@ -94,7 +94,7 @@ export function StoreFooter() {
             </h4>
             <p className="text-xs text-zinc-600 flex items-center gap-1.5 font-medium">
               <MapPin className="w-3.5 h-3.5 text-[#111111] shrink-0" />
-              <span>{storeConfig.storeAddress || 'Cartagena de Indias, Colombia · Despachos Nacionales'}</span>
+              <span>{storeConfig.storeAddress || 'Despachos Locales y Nacionales'}</span>
             </p>
             <p className="text-xs text-zinc-500">
               WhatsApp Oficial: <strong className="text-[#111111]">+{storeConfig.storePhone}</strong>

@@ -91,7 +91,24 @@ export async function POST(req: NextRequest) {
             ],
     };
 
-    db.products = [newProduct, ...db.products];
+    const existingIdx = db.products.findIndex(
+      (p) =>
+        p.id === newProduct.id ||
+        (p.nombre.trim().toLowerCase() === newProduct.nombre.trim().toLowerCase() &&
+          p.categoria === newProduct.categoria &&
+          p.precio_base === newProduct.precio_base &&
+          (p.imagenes[0] || '').slice(0, 120) === (newProduct.imagenes[0] || '').slice(0, 120))
+    );
+
+    if (existingIdx > -1) {
+      db.products[existingIdx] = {
+        ...newProduct,
+        id: db.products[existingIdx].id,
+      };
+    } else {
+      db.products = [newProduct, ...db.products];
+    }
+
     const saved = await writeDbAsync(db);
     return NextResponse.json({ success: true, product: newProduct, products: saved.products });
   } catch (err) {

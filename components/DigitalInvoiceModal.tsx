@@ -126,7 +126,7 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
                   Tel / WhatsApp: +{storeConfig.storePhone}
                 </p>
                 <p className="text-[10px] text-zinc-400">
-                  {storeConfig.storeAddress || 'Cartagena de Indias, Colombia'}
+                  {storeConfig.storeAddress}
                 </p>
               </div>
             </div>
@@ -191,7 +191,7 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
 
             <div className="space-y-1 sm:text-right">
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                Condiciones de Operación · Cartagena
+                Condiciones de Operación
               </p>
               <p className="text-zinc-600 text-[11px] flex sm:justify-end items-center gap-1.5">
                 <Wallet className="w-3.5 h-3.5 text-[#111111]" />
