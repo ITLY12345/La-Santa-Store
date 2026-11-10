@@ -4,9 +4,11 @@ export interface Variante {
   talla: string;
   color: string;
   diseno_motivo: string;
-  stock_fisico?: number; // Unidades físicas reales en bodega Cartagena (stock.quant on_hand)
-  stock_reservado?: number; // Unidades comprometidas en pedidos confirmados (stock.quant reserved)
-  stock_disponible: number; // Unidades libres para la venta (free_to_use = stock_fisico - stock_reservado)
+  stock_fisico?: number; // Unidades físicas totales (Bodega + POS + Consignación)
+  stock_reservado?: number; // Unidades comprometidas en pedidos confirmados
+  stock_disponible: number; // Unidades disponibles para venta (Bodega Principal / Web)
+  stock_punto_venta?: number; // Unidades trasladadas y disponibles en Punto de Venta físico (POS)
+  stock_consignacion?: number; // Unidades entregadas en Consignación a aliados/clientes
 }
 
 export interface Producto {
@@ -17,7 +19,8 @@ export interface Producto {
   marca_motivo: string;
   descripcion: string;
   imagenes: string[];
-  precio_base: number;
+  precio_base: number; // Precio al Detal (PVP)
+  precio_mayorista?: number; // Precio al Mayor / Distribución / Consignación
   costo_unitario?: number; // Costo de adquisición/producción (COGS) para cálculo de margen bruto
   iva_porcentaje?: number; // Tarifa IVA (por defecto 19% Colombia)
   configuracion_alertas: {
@@ -26,6 +29,12 @@ export interface Producto {
   };
   variantes: Variante[];
 }
+
+export type ModalidadVentaPOS =
+  | 'Detal'
+  | 'Mayorista'
+  | 'Crédito'
+  | 'Consignación';
 
 export interface CartItem {
   cartItemId: string;
@@ -47,6 +56,8 @@ export type MetodoPagoInterno =
   | 'Efectivo'
   | 'Transferencia / Nequi'
   | 'Tarjeta / Datáfono'
+  | 'Crédito / Plazo'
+  | 'Consignación'
   | 'Contraentrega'
   | 'Por definir';
 
@@ -64,7 +75,10 @@ export type TipoMovimientoKardex =
   | 'LIBERACION_RESERVA'
   | 'SALIDA_VENTA'
   | 'DEVOLUCION_NC'
-  | 'AJUSTE_INVENTARIO';
+  | 'AJUSTE_INVENTARIO'
+  | 'TRASLADO_BODEGA_POS'
+  | 'SALIDA_CONSIGNACION'
+  | 'RETORNO_CONSIGNACION';
 
 export interface StockMove {
   id: string;
@@ -95,6 +109,11 @@ export interface Order {
   fechaNotaCredito?: string;
   motivoNotaCredito?: string;
   origen: 'WhatsApp' | 'POS Interno';
+  modalidadVenta?: ModalidadVentaPOS; // Detal, Mayorista, Crédito o Consignación
+  ubicacionDespacho?: 'Bodega Principal' | 'Punto de Venta POS';
+  montoAbonado?: number; // Monto pagado / abonado a la factura
+  saldoPendiente?: number; // Saldo por cobrar en facturas a Crédito o Consignación
+  fechaVencimiento?: string; // Fecha acuerdo de pago o corte de consignación
   clienteNombre: string;
   clienteDocumento?: string; // Cédula o NIT
   clienteDireccion: string;
@@ -612,6 +631,40 @@ export function formatCOP(amount: number): string {
   const rounded = Math.round(amount).toString();
   const withDots = rounded.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return `$${withDots}`;
+}
+
+/**
+ * Formatea un valor numérico o cadena en un input con separadores de miles colombianos (ej. 80.000).
+ * Si el valor es 0 o vacío y allowEmptyZero es true, devuelve '' para evitar el bloqueo del cursor en '0'.
+ */
+export function formatThousandsInput(
+  value: number | string | null | undefined,
+  allowEmptyZero = true
+): string {
+  if (value === null || value === undefined || value === '') return '';
+  if (typeof value === 'number') {
+    if (isNaN(value) || (value === 0 && allowEmptyZero)) return '';
+    return Math.round(value)
+      .toString()
+      .replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
+  const digits = String(value).replace(/\D/g, '');
+  if (!digits) return '';
+  const num = parseInt(digits, 10);
+  if (isNaN(num) || (num === 0 && allowEmptyZero && digits === '0')) return '';
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+/**
+ * Convierte cualquier cadena con puntos, comas o símbolos de moneda (ej. "$80.000") a entero limpio.
+ */
+export function parseNumericInput(raw: string | number | null | undefined): number {
+  if (typeof raw === 'number') return isNaN(raw) ? 0 : Math.max(0, Math.round(raw));
+  if (!raw) return 0;
+  const digits = String(raw).replace(/\D/g, '');
+  if (!digits) return 0;
+  const parsed = parseInt(digits, 10);
+  return isNaN(parsed) ? 0 : Math.max(0, parsed);
 }
 
 /**

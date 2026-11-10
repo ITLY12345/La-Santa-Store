@@ -5,7 +5,13 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useStore } from '@/lib/store';
-import { Producto, Variante, formatCOP } from '@/lib/data';
+import {
+  Producto,
+  Variante,
+  formatCOP,
+  formatThousandsInput,
+  parseNumericInput,
+} from '@/lib/data';
 import { PushNotificationToast } from './OrderTrackerModal';
 import { POSDashboard } from './POSDashboard';
 import {
@@ -79,6 +85,7 @@ export function AdminDashboard() {
   );
   const [prodMarca, setProdMarca] = useState('');
   const [prodPrecio, setProdPrecio] = useState<number>(95000);
+  const [prodPrecioMayorista, setProdPrecioMayorista] = useState<number>(75000);
   const [prodCostoUnitario, setProdCostoUnitario] = useState<number>(42000);
   const [prodIvaPorcentaje, setProdIvaPorcentaje] = useState<number>(19);
   const [prodAlertaMin, setProdAlertaMin] = useState<number>(4);
@@ -148,6 +155,7 @@ export function AdminDashboard() {
     setProdCategoria('Camisetas');
     setProdMarca('Colección Oficial');
     setProdPrecio(95000);
+    setProdPrecioMayorista(75000);
     setProdCostoUnitario(42000);
     setProdIvaPorcentaje(19);
     setProdAlertaMin(4);
@@ -162,6 +170,8 @@ export function AdminDashboard() {
         color: 'Negro Mate',
         diseno_motivo: '',
         stock_disponible: 10,
+        stock_punto_venta: 0,
+        stock_consignacion: 0,
       },
     ]);
     setProdModalError(null);
@@ -175,6 +185,7 @@ export function AdminDashboard() {
     setProdCategoria(prod.categoria);
     setProdMarca(prod.marca_motivo);
     setProdPrecio(prod.precio_base);
+    setProdPrecioMayorista(prod.precio_mayorista ?? Math.round(prod.precio_base * 0.8));
     setProdCostoUnitario(prod.costo_unitario ?? Math.round(prod.precio_base * 0.45));
     setProdIvaPorcentaje(prod.iva_porcentaje ?? 19);
     setProdAlertaMin(prod.configuracion_alertas?.stock_minimo_alerta ?? 4);
@@ -326,10 +337,14 @@ export function AdminDashboard() {
         'Prenda de diseño minimalista con disponibilidad en tiempo real.',
       imagenes: finalImages.slice(0, 8),
       precio_base: Math.max(0, Number(prodPrecio) || 0),
+      precio_mayorista:
+        Number(prodPrecioMayorista) > 0
+          ? Math.max(0, Number(prodPrecioMayorista) || 0)
+          : undefined,
       costo_unitario: Math.max(0, Number(prodCostoUnitario) || 0),
       iva_porcentaje: Math.max(0, Number(prodIvaPorcentaje ?? 19)),
       configuracion_alertas: {
-        stock_minimo_alerta: Math.max(0, Number(prodAlertaMin) || 3),
+        stock_minimo_alerta: Math.max(1, Number(prodAlertaMin) || 3),
       },
       variantes: prodVariantes,
     };
@@ -846,8 +861,13 @@ export function AdminDashboard() {
                             </h3>
                             <div className="flex flex-wrap items-center gap-2 mt-0.5">
                               <span className="text-sm font-extrabold text-[#111111] tabular-nums">
-                                {formatCOP(prod.precio_base)}
+                                Detal: {formatCOP(prod.precio_base)}
                               </span>
+                              {prod.precio_mayorista && prod.precio_mayorista > 0 && (
+                                <span className="px-2 py-0.5 rounded-full bg-zinc-200/80 text-[#111111] text-[11px] font-bold tabular-nums">
+                                  Al Mayor: {formatCOP(prod.precio_mayorista)}
+                                </span>
+                              )}
                               <span className="text-[11px] text-zinc-500 font-mono">
                                 Costo: {formatCOP(unitCost)} · Margen: {marginPct}% · IVA:{' '}
                                 {prod.iva_porcentaje ?? 19}%
@@ -858,7 +878,7 @@ export function AdminDashboard() {
 
                         <div className="flex flex-wrap items-center gap-2.5 text-xs">
                           <span className="px-3 py-1.5 rounded-full bg-white text-zinc-600 border border-zinc-200">
-                            Existencias:{' '}
+                            Bodega:{' '}
                             <strong className="font-mono text-[#111111] tabular-nums">
                               {totalPStock} un.
                             </strong>
@@ -867,13 +887,17 @@ export function AdminDashboard() {
                           <div className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-full border border-zinc-200">
                             <span className="text-[11px] text-zinc-500">Alerta &le;</span>
                             <input
-                              type="number"
-                              min={1}
-                              max={50}
-                              value={minThresh}
-                              onChange={(e) =>
-                                updateProductAlertThreshold(prod.id, Number(e.target.value) || 1)
-                              }
+                              type="text"
+                              inputMode="numeric"
+                              value={minThresh === 0 ? '' : String(minThresh)}
+                              placeholder="1"
+                              onChange={(e) => {
+                                const raw = e.target.value.replace(/\D/g, '');
+                                updateProductAlertThreshold(
+                                  prod.id,
+                                  raw === '' ? 0 : Math.min(99, Number(raw))
+                                );
+                              }}
                               className="w-10 bg-transparent text-center font-bold text-[#111111] text-xs focus:outline-none tabular-nums"
                             />
                           </div>
@@ -906,10 +930,11 @@ export function AdminDashboard() {
                               <th className="py-2 px-3">SKU</th>
                               <th className="py-2 px-2">Color</th>
                               <th className="py-2 px-2">Talla</th>
-                              <th className="py-2 px-2 text-center">Físico (On Hand)</th>
-                              <th className="py-2 px-2 text-center">Reservado</th>
-                              <th className="py-2 px-2 text-center">Disponible Venta</th>
-                              <th className="py-2 px-3 text-right">Ajuste Rápido POS</th>
+                              <th className="py-2 px-2 text-center">Bodega Principal</th>
+                              <th className="py-2 px-2 text-center">Punto de Venta (POS)</th>
+                              <th className="py-2 px-2 text-center">En Consignación</th>
+                              <th className="py-2 px-2 text-center">Total Físico</th>
+                              <th className="py-2 px-3 text-right">Ajuste Rápido Bodega</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-zinc-100">
@@ -917,7 +942,10 @@ export function AdminDashboard() {
                               const isCritical = v.stock_disponible <= minThresh;
                               const isOutOfStock = v.stock_disponible === 0;
                               const reserved = v.stock_reservado || 0;
-                              const fisico = v.stock_fisico ?? v.stock_disponible + reserved;
+                              const stockPos = v.stock_punto_venta || 0;
+                              const stockConsig = v.stock_consignacion || 0;
+                              const fisico =
+                                v.stock_disponible + reserved + stockPos + stockConsig;
 
                               return (
                                 <tr key={v.id_variante}>
@@ -929,12 +957,6 @@ export function AdminDashboard() {
                                   </td>
                                   <td className="py-2.5 px-2 font-bold text-[#111111]">
                                     {v.talla}
-                                  </td>
-                                  <td className="py-2.5 px-2 text-center font-mono text-zinc-600 tabular-nums">
-                                    {fisico} un.
-                                  </td>
-                                  <td className="py-2.5 px-2 text-center font-mono text-zinc-400 tabular-nums">
-                                    {reserved} un.
                                   </td>
                                   <td className="py-2.5 px-2 text-center">
                                     <span
@@ -948,6 +970,27 @@ export function AdminDashboard() {
                                     >
                                       {v.stock_disponible} un.
                                     </span>
+                                  </td>
+                                  <td className="py-2.5 px-2 text-center font-mono font-semibold text-[#111111] tabular-nums">
+                                    {stockPos > 0 ? (
+                                      <span className="px-2 py-0.5 rounded-full bg-zinc-100 text-[#111111]">
+                                        {stockPos} un.
+                                      </span>
+                                    ) : (
+                                      <span className="text-zinc-400">0 un.</span>
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 px-2 text-center font-mono font-semibold tabular-nums">
+                                    {stockConsig > 0 ? (
+                                      <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                                        {stockConsig} un.
+                                      </span>
+                                    ) : (
+                                      <span className="text-zinc-400">0 un.</span>
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 px-2 text-center font-mono text-zinc-600 font-bold tabular-nums">
+                                    {fisico} un.
                                   </td>
                                   <td className="py-2.5 px-3 text-right">
                                     <div className="inline-flex items-center gap-1">
@@ -1496,14 +1539,14 @@ export function AdminDashboard() {
                       Envío Cartagena ($)
                     </label>
                     <input
-                      type="number"
-                      min={0}
-                      step={1000}
-                      value={newTarifaCartagena}
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={formatThousandsInput(newTarifaCartagena, true)}
                       onChange={(e) =>
-                        setNewTarifaCartagena(Math.max(0, Number(e.target.value)))
+                        setNewTarifaCartagena(parseNumericInput(e.target.value))
                       }
-                      className="w-full bg-white rounded-2xl px-3 py-2 text-xs font-mono text-[#111111]"
+                      className="w-full bg-white rounded-2xl px-3 py-2 text-xs font-mono font-bold text-[#111111]"
                     />
                   </div>
                   <div>
@@ -1511,14 +1554,14 @@ export function AdminDashboard() {
                       Envío Nacional ($)
                     </label>
                     <input
-                      type="number"
-                      min={0}
-                      step={1000}
-                      value={newTarifaNacional}
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={formatThousandsInput(newTarifaNacional, true)}
                       onChange={(e) =>
-                        setNewTarifaNacional(Math.max(0, Number(e.target.value)))
+                        setNewTarifaNacional(parseNumericInput(e.target.value))
                       }
-                      className="w-full bg-white rounded-2xl px-3 py-2 text-xs font-mono text-[#111111]"
+                      className="w-full bg-white rounded-2xl px-3 py-2 text-xs font-mono font-bold text-[#111111]"
                     />
                   </div>
                   <div>
@@ -1526,14 +1569,14 @@ export function AdminDashboard() {
                       Gratis Desde ($)
                     </label>
                     <input
-                      type="number"
-                      min={0}
-                      step={10000}
-                      value={newEnvioGratisDesde}
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={formatThousandsInput(newEnvioGratisDesde, true)}
                       onChange={(e) =>
-                        setNewEnvioGratisDesde(Math.max(0, Number(e.target.value)))
+                        setNewEnvioGratisDesde(parseNumericInput(e.target.value))
                       }
-                      className="w-full bg-white rounded-2xl px-3 py-2 text-xs font-mono text-[#111111]"
+                      className="w-full bg-white rounded-2xl px-3 py-2 text-xs font-mono font-bold text-[#111111]"
                     />
                   </div>
                 </div>
@@ -1857,52 +1900,87 @@ export function AdminDashboard() {
                 <div>
                   <label className="text-[11px] text-zinc-500 block mb-1">Alerta Stock Mín.</label>
                   <input
-                    type="number"
-                    min={1}
-                    value={prodAlertaMin}
-                    onChange={(e) => setProdAlertaMin(Math.max(1, Number(e.target.value)))}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="3"
+                    value={prodAlertaMin === 0 ? '' : String(prodAlertaMin)}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, '');
+                      setProdAlertaMin(raw === '' ? 0 : Math.min(999, Number(raw)));
+                    }}
                     className="w-full bg-[#F5F5F7] rounded-xl px-3 py-2 text-[#111111] font-mono tabular-nums"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <div>
                   <label className="text-[11px] text-zinc-500 block mb-1">
-                    Precio Venta PVP ($ COP)
+                    Precio Detal PVP ($ COP)
                   </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1000}
-                    value={prodPrecio}
-                    onChange={(e) => setProdPrecio(Math.max(0, Number(e.target.value)))}
-                    className="w-full bg-[#F5F5F7] rounded-xl px-3 py-2 text-[#111111] font-mono font-bold tabular-nums"
-                  />
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 font-mono text-xs">
+                      $
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={formatThousandsInput(prodPrecio, true)}
+                      onChange={(e) => setProdPrecio(parseNumericInput(e.target.value))}
+                      className="w-full bg-[#F5F5F7] rounded-xl pl-6 pr-3 py-2 text-[#111111] font-mono font-bold tabular-nums"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[11px] text-zinc-500 block mb-1">
+                    Precio Mayorista / Consig. ($ COP)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 font-mono text-xs">
+                      $
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={formatThousandsInput(prodPrecioMayorista, true)}
+                      onChange={(e) => setProdPrecioMayorista(parseNumericInput(e.target.value))}
+                      className="w-full bg-[#F5F5F7] rounded-xl pl-6 pr-3 py-2 text-[#111111] font-mono font-bold tabular-nums"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="text-[11px] text-zinc-500 block mb-1">
                     Costo Unitario COGS ($ COP)
                   </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1000}
-                    value={prodCostoUnitario}
-                    onChange={(e) => setProdCostoUnitario(Math.max(0, Number(e.target.value)))}
-                    className="w-full bg-[#F5F5F7] rounded-xl px-3 py-2 text-[#111111] font-mono tabular-nums"
-                  />
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 font-mono text-xs">
+                      $
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={formatThousandsInput(prodCostoUnitario, true)}
+                      onChange={(e) => setProdCostoUnitario(parseNumericInput(e.target.value))}
+                      className="w-full bg-[#F5F5F7] rounded-xl pl-6 pr-3 py-2 text-[#111111] font-mono tabular-nums"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="text-[11px] text-zinc-500 block mb-1">
                     Impuesto IVA (%)
                   </label>
                   <input
-                    type="number"
-                    min={0}
-                    max={35}
-                    value={prodIvaPorcentaje}
-                    onChange={(e) => setProdIvaPorcentaje(Math.max(0, Number(e.target.value)))}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="19"
+                    value={prodIvaPorcentaje === 0 ? '' : String(prodIvaPorcentaje)}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, '');
+                      setProdIvaPorcentaje(raw === '' ? 0 : Math.min(35, Number(raw)));
+                    }}
                     className="w-full bg-[#F5F5F7] rounded-xl px-3 py-2 text-[#111111] font-mono tabular-nums"
                   />
                 </div>
@@ -1921,9 +1999,14 @@ export function AdminDashboard() {
               {/* Variants Builder inside Product Modal */}
               <div className="bg-[#F5F5F7] rounded-2xl p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#111111]">
-                    Matriz de Variantes (Tallas, Colores y Stock)
-                  </span>
+                  <div>
+                    <span className="font-bold text-[#111111] block">
+                      Matriz de Variantes (Tallas, Colores y Existencias por Ubicación)
+                    </span>
+                    <span className="text-[10px] text-zinc-500">
+                      Puedes ingresar tallas en letras (S, M, L, XL, Única) o números (36, 38, 40) y existencias en Bodega y Punto de Venta.
+                    </span>
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
@@ -1938,16 +2021,27 @@ export function AdminDashboard() {
                           color: prevColor,
                           diseno_motivo: '',
                           stock_disponible: 8,
+                          stock_punto_venta: 0,
+                          stock_consignacion: 0,
                         },
                       ]);
                     }}
-                    className="px-3 py-1 rounded-full bg-[#111111] text-white text-[11px] font-bold"
+                    className="px-3 py-1.5 rounded-full bg-[#111111] text-white text-[11px] font-bold shrink-0"
                   >
                     + Añadir Variante
                   </button>
                 </div>
 
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                <div className="hidden sm:grid grid-cols-12 gap-1.5 px-2 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                  <span className="col-span-3">SKU / Código</span>
+                  <span className="col-span-2 text-center">Talla</span>
+                  <span className="col-span-3">Color</span>
+                  <span className="col-span-2 text-center">Bodega Princ.</span>
+                  <span className="col-span-1 text-center">POS</span>
+                  <span className="col-span-1 text-center">Quitar</span>
+                </div>
+
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                   {prodVariantes.map((v, idx) => (
                     <div
                       key={v.id_variante}
@@ -1962,7 +2056,7 @@ export function AdminDashboard() {
                           setProdVariantes(next);
                         }}
                         placeholder="SKU"
-                        className="col-span-3 bg-[#F5F5F7] rounded-lg px-2 py-1.5 font-mono text-[11px]"
+                        className="col-span-3 bg-[#F5F5F7] rounded-lg px-2 py-1.5 font-mono text-[11px] text-[#111111]"
                       />
                       <input
                         type="text"
@@ -1972,8 +2066,8 @@ export function AdminDashboard() {
                           next[idx] = { ...v, talla: e.target.value };
                           setProdVariantes(next);
                         }}
-                        placeholder="Talla"
-                        className="col-span-2 bg-[#F5F5F7] rounded-lg px-2 py-1.5 font-bold text-center"
+                        placeholder="Talla (M o 40)"
+                        className="col-span-2 bg-[#F5F5F7] rounded-lg px-2 py-1.5 font-bold text-center text-[#111111]"
                       />
                       <input
                         type="text"
@@ -1984,22 +2078,45 @@ export function AdminDashboard() {
                           setProdVariantes(next);
                         }}
                         placeholder="Color"
-                        className="col-span-3 bg-[#F5F5F7] rounded-lg px-2 py-1.5"
+                        className="col-span-3 bg-[#F5F5F7] rounded-lg px-2 py-1.5 text-[#111111]"
                       />
                       <input
-                        type="number"
-                        min={0}
-                        value={v.stock_disponible}
+                        type="text"
+                        inputMode="numeric"
+                        value={
+                          v.stock_disponible === 0 ? '' : String(v.stock_disponible)
+                        }
                         onChange={(e) => {
+                          const raw = e.target.value.replace(/\D/g, '');
                           const next = [...prodVariantes];
                           next[idx] = {
                             ...v,
-                            stock_disponible: Math.max(0, Number(e.target.value)),
+                            stock_disponible: raw === '' ? 0 : Number(raw),
                           };
                           setProdVariantes(next);
                         }}
-                        placeholder="Stock"
-                        className="col-span-3 bg-[#F5F5F7] rounded-lg px-2 py-1.5 font-mono font-bold text-center"
+                        placeholder="0"
+                        title="Stock en Bodega Principal"
+                        className="col-span-2 bg-[#F5F5F7] rounded-lg px-2 py-1.5 font-mono font-bold text-center text-[#111111] tabular-nums"
+                      />
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={
+                          !v.stock_punto_venta ? '' : String(v.stock_punto_venta)
+                        }
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/\D/g, '');
+                          const next = [...prodVariantes];
+                          next[idx] = {
+                            ...v,
+                            stock_punto_venta: raw === '' ? 0 : Number(raw),
+                          };
+                          setProdVariantes(next);
+                        }}
+                        placeholder="0"
+                        title="Stock en Punto de Venta POS"
+                        className="col-span-1 bg-[#F5F5F7] rounded-lg px-1 py-1.5 font-mono font-semibold text-center text-[#111111] tabular-nums"
                       />
                       <button
                         type="button"

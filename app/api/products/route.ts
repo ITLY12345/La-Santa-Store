@@ -56,6 +56,10 @@ export async function POST(req: NextRequest) {
       descripcion: (body.descripcion || '').trim().slice(0, 1000),
       imagenes: imgCheck.sanitized,
       precio_base: Math.max(0, Number(body.precio_base) || 0),
+      precio_mayorista:
+        body.precio_mayorista !== undefined && Number(body.precio_mayorista) > 0
+          ? Math.max(0, Number(body.precio_mayorista) || 0)
+          : undefined,
       costo_unitario: Math.max(0, Number(body.costo_unitario) || 0),
       iva_porcentaje: Math.max(0, Number(body.iva_porcentaje ?? 19)),
       configuracion_alertas: {
@@ -69,6 +73,9 @@ export async function POST(req: NextRequest) {
           ? body.variantes.map((v: Producto['variantes'][number]) => ({
               ...v,
               diseno_motivo: '',
+              stock_disponible: Math.max(0, Number(v.stock_disponible) || 0),
+              stock_punto_venta: Math.max(0, Number(v.stock_punto_venta) || 0),
+              stock_consignacion: Math.max(0, Number(v.stock_consignacion) || 0),
             }))
           : [
               {
@@ -78,6 +85,8 @@ export async function POST(req: NextRequest) {
                 color: 'Negro',
                 diseno_motivo: '',
                 stock_disponible: 10,
+                stock_punto_venta: 0,
+                stock_consignacion: 0,
               },
             ],
     };
@@ -146,6 +155,182 @@ export async function PUT(req: NextRequest) {
           }),
         };
       });
+      db.stockMoves = newMoves.slice(0, 500);
+      const saved = await writeDbAsync(db);
+      return NextResponse.json({
+        success: true,
+        products: saved.products,
+        stockMoves: saved.stockMoves,
+      });
+    }
+
+    if (body.action === 'transferWarehouse') {
+      const {
+        productoId,
+        varianteId,
+        tipo,
+        cantidad,
+        destinoNombre,
+        precioUnitarioPactado,
+        notas,
+      } = body as {
+        productoId: string;
+        varianteId: string;
+        tipo: 'BODEGA_A_POS' | 'POS_A_BODEGA' | 'SALIDA_CONSIGNACION' | 'RETORNO_CONSIGNACION';
+        cantidad: number;
+        destinoNombre?: string;
+        precioUnitarioPactado?: number;
+        notas?: string;
+      };
+
+      const qty = Math.max(1, Math.floor(Number(cantidad) || 0));
+      if (!qty) {
+        return NextResponse.json(
+          { success: false, message: 'La cantidad del traslado debe ser al menos 1 unidad.' },
+          { status: 400 }
+        );
+      }
+
+      const targetProd = db.products.find((p) => p.id === productoId);
+      const targetVar = targetProd?.variantes.find((v) => v.id_variante === varianteId);
+      if (!targetProd || !targetVar) {
+        return NextResponse.json(
+          { success: false, message: 'Producto o variante no encontrada para el traslado.' },
+          { status: 404 }
+        );
+      }
+
+      const dispBodega = targetVar.stock_disponible || 0;
+      const dispPos = targetVar.stock_punto_venta || 0;
+      const dispConsig = targetVar.stock_consignacion || 0;
+
+      if (tipo === 'BODEGA_A_POS' && dispBodega < qty) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Stock insuficiente en Bodega Principal (${dispBodega} un. disponibles).`,
+          },
+          { status: 400 }
+        );
+      }
+      if (tipo === 'POS_A_BODEGA' && dispPos < qty) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Stock insuficiente en Punto de Venta POS (${dispPos} un. disponibles).`,
+          },
+          { status: 400 }
+        );
+      }
+      if (tipo === 'SALIDA_CONSIGNACION' && dispBodega + dispPos < qty) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Stock disponible insuficiente para enviar en consignación (${dispBodega + dispPos} un.).`,
+          },
+          { status: 400 }
+        );
+      }
+      if (tipo === 'RETORNO_CONSIGNACION' && dispConsig < qty) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `No hay suficientes unidades en consignación para retornar (${dispConsig} un. en consignación).`,
+          },
+          { status: 400 }
+        );
+      }
+
+      const newMoves = [...(db.stockMoves || [])];
+      const docCode = `TR-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      db.products = db.products.map((prod) => {
+        if (prod.id !== productoId) return prod;
+        return {
+          ...prod,
+          variantes: prod.variantes.map((v) => {
+            if (v.id_variante !== varianteId) return v;
+            let nextBodega = v.stock_disponible || 0;
+            let nextPos = v.stock_punto_venta || 0;
+            let nextConsig = v.stock_consignacion || 0;
+            const prevBodega = nextBodega;
+
+            let moveType: 'TRASLADO_BODEGA_POS' | 'SALIDA_CONSIGNACION' | 'RETORNO_CONSIGNACION' =
+              'TRASLADO_BODEGA_POS';
+            let motivoDetalle = '';
+
+            if (tipo === 'BODEGA_A_POS') {
+              nextBodega = Math.max(0, nextBodega - qty);
+              nextPos += qty;
+              moveType = 'TRASLADO_BODEGA_POS';
+              motivoDetalle = `Traslado Bodega Principal → Punto de Venta (${qty} un.)${
+                destinoNombre ? ` · Resp: ${destinoNombre}` : ''
+              }${
+                precioUnitarioPactado
+                  ? ` · Precio salida: $${precioUnitarioPactado.toLocaleString('es-CO')}`
+                  : ''
+              }${notas ? ` · ${notas}` : ''}`;
+            } else if (tipo === 'POS_A_BODEGA') {
+              nextPos = Math.max(0, nextPos - qty);
+              nextBodega += qty;
+              moveType = 'TRASLADO_BODEGA_POS';
+              motivoDetalle = `Retorno Punto de Venta → Bodega Principal (${qty} un.)${
+                notas ? ` · ${notas}` : ''
+              }`;
+            } else if (tipo === 'SALIDA_CONSIGNACION') {
+              const fromBodega = Math.min(nextBodega, qty);
+              const fromPos = qty - fromBodega;
+              nextBodega = Math.max(0, nextBodega - fromBodega);
+              nextPos = Math.max(0, nextPos - fromPos);
+              nextConsig += qty;
+              moveType = 'SALIDA_CONSIGNACION';
+              motivoDetalle = `Salida en Consignación (${qty} un.)${
+                destinoNombre ? ` · Cliente/Aliado: ${destinoNombre}` : ''
+              }${
+                precioUnitarioPactado
+                  ? ` · Precio consignación: $${precioUnitarioPactado.toLocaleString('es-CO')}`
+                  : ''
+              }${notas ? ` · ${notas}` : ''}`;
+            } else if (tipo === 'RETORNO_CONSIGNACION') {
+              nextConsig = Math.max(0, nextConsig - qty);
+              nextBodega += qty;
+              moveType = 'RETORNO_CONSIGNACION';
+              motivoDetalle = `Retorno de Consignación → Bodega Principal (${qty} un.)${
+                destinoNombre ? ` · De: ${destinoNombre}` : ''
+              }${notas ? ` · ${notas}` : ''}`;
+            }
+
+            newMoves.unshift(
+              buildKardexMove({
+                varianteId: v.id_variante,
+                sku: v.sku || v.id_variante,
+                productoNombre: prod.nombre,
+                talla: v.talla,
+                color: v.color,
+                documentoRef: docCode,
+                tipoMovimiento: moveType,
+                cantidad:
+                  tipo === 'BODEGA_A_POS' || tipo === 'SALIDA_CONSIGNACION'
+                    ? -qty
+                    : qty,
+                stockAnterior: prevBodega,
+                stockResultante: nextBodega,
+                motivo: motivoDetalle,
+              })
+            );
+
+            return {
+              ...v,
+              stock_disponible: nextBodega,
+              stock_punto_venta: nextPos,
+              stock_consignacion: nextConsig,
+              stock_fisico:
+                nextBodega + (v.stock_reservado || 0) + nextPos + nextConsig,
+            };
+          }),
+        };
+      });
+
       db.stockMoves = newMoves.slice(0, 500);
       const saved = await writeDbAsync(db);
       return NextResponse.json({

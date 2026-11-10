@@ -61,6 +61,11 @@ export async function POST(req: NextRequest) {
       const invoiceNum = `${prefix}-${nextSeq}`;
       const orderNum = `#POS-${nextSeq}`;
 
+      const modalidadVenta: Order['modalidadVenta'] =
+        body.modalidadVenta || 'Detal';
+      const ubicacionDespacho: Order['ubicacionDespacho'] =
+        body.ubicacionDespacho || 'Bodega Principal';
+
       const stockResult = reconcileStockItems(
         db.products,
         [],
@@ -69,7 +74,12 @@ export async function POST(req: NextRequest) {
         shouldDeduct,
         {
           documentoRef: invoiceNum,
-          motivoSalida: `Venta POS Factura ${invoiceNum}`,
+          motivoSalida:
+            modalidadVenta === 'Consignación'
+              ? `Despacho en Consignación ${invoiceNum}`
+              : `Venta POS (${modalidadVenta}) Factura ${invoiceNum}`,
+          ubicacionDespacho,
+          modalidadVenta,
         }
       );
       if (!stockResult.success) {
@@ -88,6 +98,16 @@ export async function POST(req: NextRequest) {
       const total = Math.max(0, subtotal + envio - descuento);
       const tax = calculateTaxBreakdown(Math.max(0, subtotal - descuento), 19);
 
+      const isCreditOrConsig =
+        modalidadVenta === 'Crédito' || modalidadVenta === 'Consignación';
+      const montoAbonado =
+        body.montoAbonado !== undefined
+          ? Math.min(total, Math.max(0, Number(body.montoAbonado) || 0))
+          : isCreditOrConsig
+          ? 0
+          : total;
+      const saldoPendiente = Math.max(0, total - montoAbonado);
+
       const newOrder: Order = {
         id: typeof body.id === 'string' && body.id.startsWith('pos-') ? body.id : `pos-${Date.now()}`,
         orderNumber: orderNum,
@@ -100,6 +120,8 @@ export async function POST(req: NextRequest) {
             : undefined,
         fechaEntrega: estadoInicial === 'Entregado' ? formattedDate : undefined,
         origen: 'POS Interno',
+        modalidadVenta,
+        ubicacionDespacho,
         clienteNombre: (body.clienteNombre || 'Cliente Mostrador Cartagena').trim().slice(0, 120),
         clienteDocumento: (body.clienteDocumento || '222222222222').trim().slice(0, 40),
         clienteTelefono: (body.clienteTelefono || '').trim().slice(0, 40),
@@ -119,6 +141,12 @@ export async function POST(req: NextRequest) {
         descuentoManual: descuento,
         envioTexto: envio > 0 ? formatCOP(envio) : 'Sin costo / Local Cartagena',
         total,
+        montoAbonado,
+        saldoPendiente,
+        fechaVencimiento:
+          typeof body.fechaVencimiento === 'string' && body.fechaVencimiento.trim()
+            ? body.fechaVencimiento.trim().slice(0, 40)
+            : undefined,
         estado: estadoInicial,
         metodoPagoInterno: body.metodoPagoInterno || 'Efectivo',
         stockDeducted: shouldDeduct,
@@ -339,6 +367,11 @@ export async function PUT(req: NextRequest) {
       existingOrder.invoiceNumber ||
       (shouldDeductNext ? `${prefix}-${nextSeq}` : existingOrder.orderNumber);
 
+    const nextModalidad: Order['modalidadVenta'] =
+      body.modalidadVenta || existingOrder.modalidadVenta || 'Detal';
+    const nextUbicacion: Order['ubicacionDespacho'] =
+      body.ubicacionDespacho || existingOrder.ubicacionDespacho || 'Bodega Principal';
+
     const stockRes = reconcileStockItems(
       db.products,
       existingOrder.items,
@@ -350,6 +383,8 @@ export async function PUT(req: NextRequest) {
         documentoRef: docRef,
         motivoSalida: `Facturación de orden ${existingOrder.orderNumber} (${docRef})`,
         motivoReintegro: `Reversión de inventario sobre ${docRef}`,
+        ubicacionDespacho: nextUbicacion,
+        modalidadVenta: nextModalidad,
       }
     );
 
@@ -406,6 +441,18 @@ export async function PUT(req: NextRequest) {
     const total = Math.max(0, subtotal + envio - descuento);
     const editTax = calculateTaxBreakdown(Math.max(0, subtotal - descuento), 19);
 
+    const isCreditOrConsig =
+      nextModalidad === 'Crédito' || nextModalidad === 'Consignación';
+    const nextMontoAbonado =
+      body.montoAbonado !== undefined
+        ? Math.min(total, Math.max(0, Number(body.montoAbonado) || 0))
+        : existingOrder.montoAbonado !== undefined
+        ? Math.min(total, existingOrder.montoAbonado)
+        : isCreditOrConsig
+        ? 0
+        : total;
+    const nextSaldoPendiente = Math.max(0, total - nextMontoAbonado);
+
     const updatedOrder: Order = {
       ...existingOrder,
       invoiceNumber: assignedInvoice,
@@ -415,6 +462,8 @@ export async function PUT(req: NextRequest) {
       fechaEntrega,
       fechaNotaCredito,
       motivoNotaCredito,
+      modalidadVenta: nextModalidad,
+      ubicacionDespacho: nextUbicacion,
       clienteNombre:
         body.clienteNombre !== undefined
           ? body.clienteNombre.trim() || existingOrder.clienteNombre
@@ -453,6 +502,12 @@ export async function PUT(req: NextRequest) {
           ? 'Gratis / Local Cartagena'
           : existingOrder.envioTexto,
       total,
+      montoAbonado: nextMontoAbonado,
+      saldoPendiente: nextSaldoPendiente,
+      fechaVencimiento:
+        body.fechaVencimiento !== undefined
+          ? body.fechaVencimiento.trim() || undefined
+          : existingOrder.fechaVencimiento,
       estado: nextEstado,
       metodoPagoInterno: body.metodoPagoInterno || existingOrder.metodoPagoInterno,
       stockDeducted: shouldDeductNext,

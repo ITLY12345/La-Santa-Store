@@ -6,6 +6,7 @@ import {
   Variante,
   CartItem,
   Order,
+  ModalidadVentaPOS,
   MetodoPagoInterno,
   EstadoPedido,
   StoreConfig,
@@ -84,6 +85,15 @@ interface StoreContextType {
     message?: string;
   }>;
   updateVariantStock: (productoId: string, varianteId: string, newStock: number) => void;
+  transferWarehouseStock: (payload: {
+    productoId: string;
+    varianteId: string;
+    tipo: 'BODEGA_A_POS' | 'POS_A_BODEGA' | 'SALIDA_CONSIGNACION' | 'RETORNO_CONSIGNACION';
+    cantidad: number;
+    destinoNombre?: string;
+    precioUnitarioPactado?: number;
+    notas?: string;
+  }) => Promise<{ success: boolean; message?: string }>;
   updateProductAlertThreshold: (productoId: string, newThreshold: number) => void;
   resetToInitialCatalog: () => void;
   // Cart actions
@@ -113,6 +123,10 @@ interface StoreContextType {
     costoEnvio: number;
     descuentoManual?: number;
     metodoPagoInterno: MetodoPagoInterno;
+    modalidadVenta?: ModalidadVentaPOS;
+    ubicacionDespacho?: 'Bodega Principal' | 'Punto de Venta POS';
+    montoAbonado?: number;
+    fechaVencimiento?: string;
     estado?: EstadoPedido;
     notas?: string;
   }) => { success: boolean; order?: Order; message?: string };
@@ -144,9 +158,18 @@ interface StoreContextType {
       costoEnvio: number;
       descuentoManual?: number;
       metodoPagoInterno: MetodoPagoInterno;
+      modalidadVenta?: ModalidadVentaPOS;
+      ubicacionDespacho?: 'Bodega Principal' | 'Punto de Venta POS';
+      montoAbonado?: number;
+      fechaVencimiento?: string;
       estado: EstadoPedido;
       notas?: string;
     }
+  ) => { success: boolean; order?: Order; message?: string };
+  registerOrderPayment: (
+    orderId: string,
+    abonoAdicional: number,
+    metodoPago?: MetodoPagoInterno
   ) => { success: boolean; order?: Order; message?: string };
   deleteOrder: (orderId: string) => { success: boolean; message?: string };
   updateOrderStatus: (
@@ -586,7 +609,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     oldItems: CartItem[],
     oldDeducted: boolean,
     newItems: CartItem[],
-    newDeducted: boolean
+    newDeducted: boolean,
+    ubicacionDespacho?: 'Bodega Principal' | 'Punto de Venta POS',
+    modalidadVenta?: ModalidadVentaPOS
   ): { success: boolean; products: Producto[]; errorMessage?: string } => {
     const nextProducts: Producto[] = structuredClone(currentProducts);
 
@@ -596,6 +621,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const variant = prod?.variantes.find((v) => v.id_variante === item.varianteId);
         if (variant) {
           variant.stock_disponible += item.cantidad;
+          if (modalidadVenta === 'Consignación') {
+            variant.stock_consignacion = Math.max(
+              0,
+              (variant.stock_consignacion || 0) - item.cantidad
+            );
+          }
         }
       }
     }
@@ -611,14 +642,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             errorMessage: `La variante de ${item.nombre} (${item.talla}) no existe.`,
           };
         }
-        if (variant.stock_disponible < item.cantidad) {
+        const dispBodega = variant.stock_disponible || 0;
+        const dispPos = variant.stock_punto_venta || 0;
+        const totalSellable = dispBodega + dispPos;
+        if (totalSellable < item.cantidad) {
           return {
             success: false,
             products: currentProducts,
-            errorMessage: `Stock insuficiente para ${item.nombre} (Talla ${item.talla} · ${item.color}). Disponible: ${variant.stock_disponible} un.`,
+            errorMessage: `Stock insuficiente para ${item.nombre} (Talla ${item.talla} · ${item.color}). Disponible total (Bodega + POS): ${totalSellable} un.`,
           };
         }
-        variant.stock_disponible = Math.max(0, variant.stock_disponible - item.cantidad);
+        if (ubicacionDespacho === 'Punto de Venta POS' && dispPos > 0) {
+          const fromPos = Math.min(dispPos, item.cantidad);
+          const fromBodega = item.cantidad - fromPos;
+          variant.stock_punto_venta = Math.max(0, dispPos - fromPos);
+          variant.stock_disponible = Math.max(0, dispBodega - fromBodega);
+        } else {
+          const fromBodega = Math.min(dispBodega, item.cantidad);
+          const fromPos = item.cantidad - fromBodega;
+          variant.stock_disponible = Math.max(0, dispBodega - fromBodega);
+          variant.stock_punto_venta = Math.max(0, dispPos - fromPos);
+        }
+        if (modalidadVenta === 'Consignación') {
+          variant.stock_consignacion = (variant.stock_consignacion || 0) + item.cantidad;
+        }
       }
     }
 
@@ -733,6 +780,53 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         console.error('Error sincronizando stock con servidor, revirtiendo estado local:', err);
         saveProductsLocal(previousProducts);
       });
+  };
+
+  const transferWarehouseStock = async (payload: {
+    productoId: string;
+    varianteId: string;
+    tipo: 'BODEGA_A_POS' | 'POS_A_BODEGA' | 'SALIDA_CONSIGNACION' | 'RETORNO_CONSIGNACION';
+    cantidad: number;
+    destinoNombre?: string;
+    precioUnitarioPactado?: number;
+    notas?: string;
+  }): Promise<{ success: boolean; message?: string }> => {
+    const qty = Math.max(1, Math.floor(Number(payload.cantidad) || 0));
+    if (!qty) {
+      return { success: false, message: 'La cantidad debe ser al menos 1 unidad.' };
+    }
+
+    try {
+      const res = await fetch('/api/products', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'transferWarehouse',
+          ...payload,
+          cantidad: qty,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return {
+          success: false,
+          message: data.message || 'No se pudo procesar el traslado de bodega.',
+        };
+      }
+      if (Array.isArray(data.products)) {
+        saveProductsLocal(data.products);
+      }
+      if (Array.isArray(data.stockMoves)) {
+        setStockMoves(data.stockMoves);
+      }
+      return { success: true };
+    } catch (err) {
+      console.error('Error ejecutando traslado de bodega:', err);
+      return {
+        success: false,
+        message: 'Error de red al registrar el traslado de bodega.',
+      };
+    }
   };
 
   const updateProductAlertThreshold = (productoId: string, newThreshold: number) => {
@@ -1014,6 +1108,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     costoEnvio: number;
     descuentoManual?: number;
     metodoPagoInterno: MetodoPagoInterno;
+    modalidadVenta?: ModalidadVentaPOS;
+    ubicacionDespacho?: 'Bodega Principal' | 'Punto de Venta POS';
+    montoAbonado?: number;
+    fechaVencimiento?: string;
     estado?: EstadoPedido;
     notas?: string;
   }): { success: boolean; order?: Order; message?: string } => {
@@ -1023,8 +1121,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     const estadoInicial: EstadoPedido = payload.estado || 'Facturado';
     const shouldDeduct = isStockCommitted(estadoInicial);
+    const modalidadVenta: ModalidadVentaPOS = payload.modalidadVenta || 'Detal';
+    const ubicacionDespacho = payload.ubicacionDespacho || 'Bodega Principal';
 
-    const stockRes = reconcileClientStock(products, [], false, payload.items, shouldDeduct);
+    const stockRes = reconcileClientStock(
+      products,
+      [],
+      false,
+      payload.items,
+      shouldDeduct,
+      ubicacionDespacho,
+      modalidadVenta
+    );
     if (!stockRes.success) {
       return { success: false, message: stockRes.errorMessage };
     }
@@ -1038,6 +1146,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const descuento = Math.max(0, Number(payload.descuentoManual) || 0);
     const total = Math.max(0, subtotal + envio - descuento);
 
+    const isCreditOrConsig =
+      modalidadVenta === 'Crédito' || modalidadVenta === 'Consignación';
+    const montoAbonado =
+      payload.montoAbonado !== undefined
+        ? Math.min(total, Math.max(0, Number(payload.montoAbonado) || 0))
+        : isCreditOrConsig
+        ? 0
+        : total;
+    const saldoPendiente = Math.max(0, total - montoAbonado);
+
     const newInvoiceOrder: Order = {
       id: `pos-${Date.now()}`,
       orderNumber: orderNum,
@@ -1050,6 +1168,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           : undefined,
       fechaEntrega: estadoInicial === 'Entregado' ? formattedDate : undefined,
       origen: 'POS Interno',
+      modalidadVenta,
+      ubicacionDespacho,
       clienteNombre: payload.clienteNombre.trim() || 'Cliente Mostrador Cartagena',
       clienteDocumento: payload.clienteDocumento?.trim() || '222222222222',
       clienteTelefono: payload.clienteTelefono?.trim() || '',
@@ -1063,6 +1183,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       descuentoManual: descuento,
       envioTexto: envio > 0 ? formatCOP(envio) : 'Sin costo / Local Cartagena',
       total,
+      montoAbonado,
+      saldoPendiente,
+      fechaVencimiento: payload.fechaVencimiento?.trim() || undefined,
       estado: estadoInicial,
       metodoPagoInterno: payload.metodoPagoInterno,
       stockDeducted: shouldDeduct,
@@ -1161,6 +1284,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       costoEnvio: number;
       descuentoManual?: number;
       metodoPagoInterno: MetodoPagoInterno;
+      modalidadVenta?: ModalidadVentaPOS;
+      ubicacionDespacho?: 'Bodega Principal' | 'Punto de Venta POS';
+      montoAbonado?: number;
+      fechaVencimiento?: string;
       estado: EstadoPedido;
       notas?: string;
     }
@@ -1174,12 +1301,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
 
     const shouldDeductNext = isStockCommitted(payload.estado);
+    const nextModalidad: ModalidadVentaPOS =
+      payload.modalidadVenta || targetOrder.modalidadVenta || 'Detal';
+    const nextUbicacion =
+      payload.ubicacionDespacho || targetOrder.ubicacionDespacho || 'Bodega Principal';
+
     const stockRes = reconcileClientStock(
       products,
       targetOrder.items,
       targetOrder.stockDeducted,
       payload.items,
-      shouldDeductNext
+      shouldDeductNext,
+      nextUbicacion,
+      nextModalidad
     );
 
     if (!stockRes.success) {
@@ -1203,6 +1337,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const descuento = Math.max(0, Number(payload.descuentoManual) || 0);
     const total = Math.max(0, subtotal + envio - descuento);
 
+    const isCreditOrConsig =
+      nextModalidad === 'Crédito' || nextModalidad === 'Consignación';
+    const nextMontoAbonado =
+      payload.montoAbonado !== undefined
+        ? Math.min(total, Math.max(0, Number(payload.montoAbonado) || 0))
+        : targetOrder.montoAbonado !== undefined
+        ? Math.min(total, targetOrder.montoAbonado)
+        : isCreditOrConsig
+        ? 0
+        : total;
+    const nextSaldoPendiente = Math.max(0, total - nextMontoAbonado);
+
     const updatedOrder: Order = {
       ...targetOrder,
       invoiceNumber: assignedInvoice,
@@ -1215,6 +1361,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         payload.estado === 'Entregado' && !targetOrder.fechaEntrega
           ? formattedDate
           : targetOrder.fechaEntrega,
+      modalidadVenta: nextModalidad,
+      ubicacionDespacho: nextUbicacion,
       clienteNombre: payload.clienteNombre.trim() || targetOrder.clienteNombre,
       clienteDocumento: payload.clienteDocumento?.trim() ?? targetOrder.clienteDocumento,
       clienteTelefono: payload.clienteTelefono?.trim() ?? targetOrder.clienteTelefono,
@@ -1227,6 +1375,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       descuentoManual: descuento,
       envioTexto: envio > 0 ? formatCOP(envio) : 'Gratis / Local Cartagena',
       total,
+      montoAbonado: nextMontoAbonado,
+      saldoPendiente: nextSaldoPendiente,
+      fechaVencimiento:
+        payload.fechaVencimiento !== undefined
+          ? payload.fechaVencimiento.trim() || undefined
+          : targetOrder.fechaVencimiento,
       estado: payload.estado,
       metodoPagoInterno: payload.metodoPagoInterno,
       stockDeducted: shouldDeductNext,
@@ -1272,6 +1426,49 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {});
 
     return { success: true, order: updatedOrder };
+  };
+
+  const registerOrderPayment = (
+    orderId: string,
+    abonoAdicional: number,
+    metodoPago?: MetodoPagoInterno
+  ): { success: boolean; order?: Order; message?: string } => {
+    const targetOrder = orders.find((o) => o.id === orderId);
+    if (!targetOrder) {
+      return { success: false, message: 'Factura no encontrada.' };
+    }
+    const cleanAbono = Math.max(0, Number(abonoAdicional) || 0);
+    if (cleanAbono <= 0) {
+      return { success: false, message: 'Ingresa un monto de abono mayor a $0.' };
+    }
+    const currentAbonado = targetOrder.montoAbonado ?? 0;
+    const nextAbonado = Math.min(targetOrder.total, currentAbonado + cleanAbono);
+    const formattedDate = getFormattedNow();
+    const paymentNote = `[Abono +${formatCOP(cleanAbono)} el ${formattedDate}${
+      metodoPago ? ` vía ${metodoPago}` : ''
+    }]`;
+    const nextNotas = targetOrder.notas
+      ? `${targetOrder.notas} · ${paymentNote}`
+      : paymentNote;
+
+    return updateOrderFull(orderId, {
+      clienteNombre: targetOrder.clienteNombre,
+      clienteDocumento: targetOrder.clienteDocumento,
+      clienteTelefono: targetOrder.clienteTelefono,
+      clienteDireccion: targetOrder.clienteDireccion,
+      transportadora: targetOrder.transportadora,
+      guiaSeguimiento: targetOrder.guiaSeguimiento,
+      items: targetOrder.items,
+      costoEnvio: targetOrder.costoEnvio,
+      descuentoManual: targetOrder.descuentoManual,
+      metodoPagoInterno: metodoPago || targetOrder.metodoPagoInterno,
+      modalidadVenta: targetOrder.modalidadVenta,
+      ubicacionDespacho: targetOrder.ubicacionDespacho,
+      montoAbonado: nextAbonado,
+      fechaVencimiento: targetOrder.fechaVencimiento,
+      estado: targetOrder.estado,
+      notas: nextNotas,
+    });
   };
 
   // 5. Annul / Issue Credit Note for Billed Invoice OR Delete Draft Order, restoring stock
@@ -1472,6 +1669,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         updateProduct,
         deleteProduct,
         updateVariantStock,
+        transferWarehouseStock,
         updateProductAlertThreshold,
         resetToInitialCatalog,
         addToCart,
@@ -1482,6 +1680,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         createPosInvoice,
         emitirFacturaOrder,
         updateOrderFull,
+        registerOrderPayment,
         deleteOrder,
         updateOrderStatus,
         updatePluginConnector,

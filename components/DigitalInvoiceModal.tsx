@@ -200,7 +200,13 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
               </p>
               <p className="text-zinc-500 text-[11px]">
                 Canal de Venta: <strong className="text-[#111111]">{order.origen}</strong>
+                {order.modalidadVenta ? ` · Modalidad: ${order.modalidadVenta}` : ''}
               </p>
+              {order.ubicacionDespacho && (
+                <p className="text-zinc-500 text-[11px]">
+                  Ubicación Salida: <strong className="text-[#111111]">{order.ubicacionDespacho}</strong>
+                </p>
+              )}
               {order.transportadora && (
                 <p className="text-zinc-500 text-[11px]">
                   Transportadora: <strong className="text-[#111111]">{order.transportadora}</strong>
@@ -305,6 +311,30 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
                   <span>TOTAL FACTURADO (COP)</span>
                   <span className="text-base tabular-nums">{formatCOP(order.total)}</span>
                 </div>
+                {(order.modalidadVenta === 'Crédito' ||
+                  order.modalidadVenta === 'Consignación' ||
+                  (order.saldoPendiente !== undefined && order.saldoPendiente > 0)) && (
+                  <div className="border-t border-zinc-200/80 pt-2 space-y-1">
+                    <div className="flex justify-between text-emerald-700 font-bold">
+                      <span>Monto Abonado / Pagado</span>
+                      <span className="font-mono tabular-nums">
+                        {formatCOP(order.montoAbonado || 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-amber-800 font-extrabold">
+                      <span>
+                        Saldo Pendiente ({order.modalidadVenta || 'Crédito'})
+                        {order.fechaVencimiento ? ` · Vence: ${order.fechaVencimiento}` : ''}
+                      </span>
+                      <span className="font-mono tabular-nums">
+                        {formatCOP(
+                          order.saldoPendiente ??
+                            Math.max(0, order.total - (order.montoAbonado || 0))
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}

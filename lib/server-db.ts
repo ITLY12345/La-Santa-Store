@@ -157,10 +157,12 @@ function normalizeLoadedDb(parsed: Partial<ServerDatabase>): ServerDatabase {
     variantes: (p.variantes || []).map((v) => {
       const disp = Math.max(0, Number(v.stock_disponible) || 0);
       const res = Math.max(0, Number(v.stock_reservado) || 0);
+      const pos = Math.max(0, Number(v.stock_punto_venta) || 0);
+      const consig = Math.max(0, Number(v.stock_consignacion) || 0);
       const fis =
-        typeof v.stock_fisico === 'number' && v.stock_fisico >= disp
+        typeof v.stock_fisico === 'number' && v.stock_fisico >= disp + pos + consig
           ? v.stock_fisico
-          : disp + res;
+          : disp + res + pos + consig;
       return {
         ...v,
         talla: (v.talla || '').replace(/\s+/g, ' ').trim(),
@@ -169,6 +171,8 @@ function normalizeLoadedDb(parsed: Partial<ServerDatabase>): ServerDatabase {
         stock_fisico: fis,
         stock_reservado: res,
         stock_disponible: disp,
+        stock_punto_venta: pos,
+        stock_consignacion: consig,
       };
     }),
   }));
@@ -602,6 +606,8 @@ export function reconcileStockItems(
     documentoRef?: string;
     motivoSalida?: string;
     motivoReintegro?: string;
+    ubicacionDespacho?: 'Bodega Principal' | 'Punto de Venta POS';
+    modalidadVenta?: 'Detal' | 'Mayorista' | 'Crédito' | 'Consignación';
   }
 ): {
   success: boolean;
@@ -622,8 +628,17 @@ export function reconcileStockItems(
       if (prod && variant) {
         const prevDisp = variant.stock_disponible;
         variant.stock_disponible += item.cantidad;
+        if (kardexContext?.modalidadVenta === 'Consignación') {
+          variant.stock_consignacion = Math.max(
+            0,
+            (variant.stock_consignacion || 0) - item.cantidad
+          );
+        }
         variant.stock_fisico =
-          (variant.stock_fisico ?? prevDisp) + item.cantidad;
+          variant.stock_disponible +
+          (variant.stock_reservado || 0) +
+          (variant.stock_punto_venta || 0) +
+          (variant.stock_consignacion || 0);
 
         generatedMoves.push(
           buildKardexMove({
@@ -634,7 +649,10 @@ export function reconcileStockItems(
             color: variant.color,
             orderId: kardexContext?.orderId,
             documentoRef: kardexContext?.documentoRef || 'REINTEGRO',
-            tipoMovimiento: 'DEVOLUCION_NC',
+            tipoMovimiento:
+              kardexContext?.modalidadVenta === 'Consignación'
+                ? 'RETORNO_CONSIGNACION'
+                : 'DEVOLUCION_NC',
             cantidad: item.cantidad,
             stockAnterior: prevDisp,
             stockResultante: variant.stock_disponible,
@@ -662,20 +680,42 @@ export function reconcileStockItems(
           errorMessage: `La variante de ${item.nombre} (${item.talla}) ya no existe en el inventario.`,
         };
       }
-      if (variant.stock_disponible < item.cantidad) {
+      const dispBodega = variant.stock_disponible || 0;
+      const dispPos = variant.stock_punto_venta || 0;
+      const totalSellable = dispBodega + dispPos;
+
+      if (totalSellable < item.cantidad) {
         return {
           success: false,
           products,
           generatedMoves: [],
-          errorMessage: `Stock insuficiente para ${item.nombre} (Talla ${item.talla} · ${item.color}). Disponible: ${variant.stock_disponible} un.`,
+          errorMessage: `Stock insuficiente para ${item.nombre} (Talla ${item.talla} · ${item.color}). Disponible total (Bodega + POS): ${totalSellable} un.`,
         };
       }
+
       const prevDisp = variant.stock_disponible;
-      variant.stock_disponible = Math.max(0, prevDisp - item.cantidad);
-      variant.stock_fisico = Math.max(
-        variant.stock_disponible + (variant.stock_reservado || 0),
-        (variant.stock_fisico ?? prevDisp) - item.cantidad
-      );
+      if (kardexContext?.ubicacionDespacho === 'Punto de Venta POS' && dispPos > 0) {
+        const deductFromPos = Math.min(dispPos, item.cantidad);
+        const deductFromBodega = item.cantidad - deductFromPos;
+        variant.stock_punto_venta = Math.max(0, dispPos - deductFromPos);
+        variant.stock_disponible = Math.max(0, dispBodega - deductFromBodega);
+      } else {
+        const deductFromBodega = Math.min(dispBodega, item.cantidad);
+        const deductFromPos = item.cantidad - deductFromBodega;
+        variant.stock_disponible = Math.max(0, dispBodega - deductFromBodega);
+        variant.stock_punto_venta = Math.max(0, dispPos - deductFromPos);
+      }
+
+      if (kardexContext?.modalidadVenta === 'Consignación') {
+        variant.stock_consignacion =
+          (variant.stock_consignacion || 0) + item.cantidad;
+      }
+
+      variant.stock_fisico =
+        variant.stock_disponible +
+        (variant.stock_reservado || 0) +
+        (variant.stock_punto_venta || 0) +
+        (variant.stock_consignacion || 0);
 
       generatedMoves.push(
         buildKardexMove({
@@ -686,7 +726,10 @@ export function reconcileStockItems(
           color: variant.color,
           orderId: kardexContext?.orderId,
           documentoRef: kardexContext?.documentoRef || 'POS-VENTA',
-          tipoMovimiento: 'SALIDA_VENTA',
+          tipoMovimiento:
+            kardexContext?.modalidadVenta === 'Consignación'
+              ? 'SALIDA_CONSIGNACION'
+              : 'SALIDA_VENTA',
           cantidad: -item.cantidad,
           stockAnterior: prevDisp,
           stockResultante: variant.stock_disponible,
