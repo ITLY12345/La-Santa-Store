@@ -106,6 +106,13 @@ export function StoreFooter() {
               >
                 Centro Legal y Políticas
               </Link>
+              <Link
+                href="/admin"
+                className="px-4 py-2 rounded-full bg-white border border-zinc-200 hover:border-zinc-400 text-[11px] font-bold text-[#111111] transition flex items-center gap-1.5"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>Acceso POS &amp; Inventario</span>
+              </Link>
             </div>
           </div>
         </div>
@@ -114,6 +121,13 @@ export function StoreFooter() {
         <div className="border-t border-zinc-200 pt-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-zinc-500">
           <p>© 2026 {storeConfig.storeName} Oficial. Todos los derechos reservados</p>
           <div className="flex items-center gap-4">
+            <Link
+              href="/admin"
+              className="text-zinc-400 hover:text-[#111111] transition flex items-center gap-1 text-[11px]"
+            >
+              <Lock className="w-3 h-3" />
+              <span>Acceso Sistema POS</span>
+            </Link>
             <p className="font-semibold text-[#111111]">
               Desarrollado por <span className="font-extrabold">HomeLab</span>
             </p>

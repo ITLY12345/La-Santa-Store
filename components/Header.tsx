@@ -2,8 +2,9 @@
 
 import React from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useStore } from '@/lib/store';
-import { ShoppingBag, Heart } from 'lucide-react';
+import { ShoppingBag, Heart, Lock } from 'lucide-react';
 
 interface HeaderProps {
   onOpenCart: () => void;
@@ -95,6 +96,16 @@ export function Header({
               </span>
             )}
           </button>
+
+          {/* Access to POS & Inventory */}
+          <Link
+            href="/admin"
+            className="relative w-11 h-11 rounded-full bg-[#F5F5F7] hover:bg-zinc-200/70 text-[#111111] flex items-center justify-center transition active:scale-95"
+            aria-label="Acceso al Sistema POS & Inventario"
+            title="Acceso POS & Inventario"
+          >
+            <Lock className="w-4 h-4" />
+          </Link>
         </div>
       </div>
     </header>
