@@ -40,7 +40,7 @@ export function generateWhatsAppMessage(
           ? `[${item.marca_motivo} / ${item.color}]`
           : `[${item.diseno_motivo || item.color}]`;
 
-      return `- ${item.cantidad}x ${item.categoria} ${descriptor} - Talla: ${item.talla} (${formatCOP(
+      return `- ${item.cantidad}x ${item.nombre || item.categoria} ${descriptor} - Talla: ${item.talla} (${formatCOP(
         item.precio * item.cantidad
       )})`;
     })
@@ -66,22 +66,22 @@ export function generateWhatsAppMessage(
 
   const refUrl =
     referenceUrl ||
-    `https://lasantastore.enigmaproducciones.com/pedido/LS-${Date.now()
+    `https://ivory-kangaroo-451599.hostingersite.com/?pedido=ORD-${Date.now()
       .toString()
-      .slice(-6)}`;
+      .slice(-4)}`;
 
   const orderHeader = orderNumber ? ` (Orden ${orderNumber})` : '';
 
-  const messageText = `¡Hola La Santa Store! 👑 Quiero confirmar mi pedido${orderHeader}:
+  const messageText = `¡Hola *La Santa Store*! Quiero confirmar mi pedido${orderHeader}:
 
-🛍️ DETALLE DEL PEDIDO:
+*DETALLE DEL PEDIDO:*
 ${itemsLines}
 
-💵 Subtotal: ${formatCOP(subtotal)}
-🚚 Envío: ${shippingLabel}
-💰 TOTAL A PAGAR: ${formatCOP(total)}
+• *Subtotal:* ${formatCOP(subtotal)}
+• *Envío:* ${shippingLabel}
+• *TOTAL A PAGAR:* ${formatCOP(total)}
 
-👤 DATOS DE DESPACHO:
+*DATOS DE DESPACHO:*
 - Nombre: ${nameVal}
 - Teléfono: ${phoneVal}
 - Dirección / Ciudad: ${addressVal}

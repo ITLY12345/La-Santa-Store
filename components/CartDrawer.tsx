@@ -161,6 +161,15 @@ export function CartDrawer({
       const confirmed = res.order;
       setOrderSuccessNumber(confirmed.orderNumber);
 
+      const currentOrigin =
+        typeof window !== 'undefined' && window.location?.origin
+          ? window.location.origin
+          : '';
+      const orderCodeClean = confirmed.orderNumber.replace(/^#/, '');
+      const effectiveRefUrl = currentOrigin
+        ? `${currentOrigin}/?pedido=${orderCodeClean}`
+        : confirmed.referenceUrl;
+
       const { waLink } = generateWhatsAppMessage(
         {
           orderNumber: confirmed.orderNumber,
@@ -172,7 +181,7 @@ export function CartDrawer({
           clienteNombre: confirmed.clienteNombre,
           clienteDireccion: confirmed.clienteDireccion,
           clienteTelefono: confirmed.clienteTelefono,
-          referenceUrl: confirmed.referenceUrl,
+          referenceUrl: effectiveRefUrl,
         },
         storeConfig.storePhone || '573022241002'
       );

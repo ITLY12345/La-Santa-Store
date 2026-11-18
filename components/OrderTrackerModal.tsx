@@ -14,6 +14,8 @@ import {
   MapPin,
   Clock,
   Receipt,
+  Phone,
+  User,
 } from 'lucide-react';
 
 export function PushNotificationToast({
@@ -112,13 +114,43 @@ export function OrderTrackerModal({ isOpen, onClose }: OrderTrackerModalProps) {
   const [isSearching, setIsSearching] = useState(false);
   const [pushRequestStatus, setPushRequestStatus] = useState<string | null>(null);
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    const rafId = window.requestAnimationFrame(() => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const pedidoParam = params.get('pedido')?.trim();
+        if (pedidoParam) {
+          setActiveView('tracking');
+          setSearchQuery(pedidoParam);
+          setIsSearching(true);
+          void trackOrderByQuery(pedidoParam).finally(() => {
+            setIsSearching(false);
+          });
+        }
+      } catch {
+        // ignore query parsing errors
+      }
+    });
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [isOpen, onClose, trackOrderByQuery]);
+
   const filteredOrders = useMemo(() => {
     if (!searchQuery.trim()) return orders;
-    const q = searchQuery.toLowerCase().trim();
+    const q = searchQuery.toLowerCase().trim().replace(/^#/, '');
     return orders.filter(
       (o) =>
-        o.orderNumber.toLowerCase().includes(q) ||
-        (o.invoiceNumber && o.invoiceNumber.toLowerCase().includes(q)) ||
+        o.orderNumber.toLowerCase().replace(/^#/, '').includes(q) ||
+        (o.invoiceNumber && o.invoiceNumber.toLowerCase().replace(/^#/, '').includes(q)) ||
         (o.guiaSeguimiento && o.guiaSeguimiento.toLowerCase().includes(q)) ||
         o.clienteNombre.toLowerCase().includes(q)
     );
@@ -378,7 +410,7 @@ export function OrderTrackerModal({ isOpen, onClose }: OrderTrackerModalProps) {
                     Consulta el estado de tu pedido
                   </p>
                   <p className="text-[11px] text-zinc-500 max-w-xs mx-auto">
-                    Ingresa tu número de orden (ej. <strong>#ORD-1001</strong>) o factura oficial (<strong>FAC-1001</strong>) y presiona Consultar.
+                    Ingresa el código de orden (ej. <strong>#ORD-1002</strong>) o número de comprobante y presiona Consultar.
                   </p>
                 </div>
               ) : (
@@ -387,25 +419,37 @@ export function OrderTrackerModal({ isOpen, onClose }: OrderTrackerModalProps) {
                   return (
                     <div
                       key={ord.id}
-                      className="p-4 rounded-3xl bg-[#F5F5F7] space-y-3 text-xs"
+                      className="p-4 rounded-3xl bg-[#F5F5F7] space-y-3.5 text-xs"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <span className="font-mono font-extrabold text-[#111111] text-sm">
-                            {ord.orderNumber}{' '}
-                            {ord.invoiceNumber ? `· ${ord.invoiceNumber}` : ''}
-                          </span>
-                          <p className="font-bold text-[#111111] mt-0.5">
-                            {ord.clienteNombre}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono font-black text-[#111111] text-sm">
+                              {ord.orderNumber}{' '}
+                              {ord.invoiceNumber ? `· ${ord.invoiceNumber}` : ''}
+                            </span>
+                            <span className="text-[10px] font-mono text-zinc-500">
+                              {ord.fecha}
+                            </span>
+                          </div>
+                          <p className="font-bold text-[#111111] mt-1 flex items-center gap-1.5">
+                            <User className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                            <span>{ord.clienteNombre}</span>
                           </p>
-                          <p className="text-[11px] text-zinc-500 flex items-center gap-1 mt-0.5">
-                            <MapPin className="w-3 h-3 shrink-0" />
+                          {ord.clienteTelefono && (
+                            <p className="text-[11px] text-zinc-600 flex items-center gap-1.5 mt-0.5 font-mono">
+                              <Phone className="w-3 h-3 text-zinc-500 shrink-0" />
+                              <span>{ord.clienteTelefono}</span>
+                            </p>
+                          )}
+                          <p className="text-[11px] text-zinc-600 flex items-center gap-1.5 mt-0.5">
+                            <MapPin className="w-3 h-3 text-zinc-500 shrink-0" />
                             <span>{ord.clienteDireccion}</span>
                           </p>
                         </div>
 
                         <span
-                          className={`px-3 py-1 rounded-full text-[11px] font-bold ${
+                          className={`px-3 py-1 rounded-full text-[11px] font-bold shrink-0 ${
                             ord.estado === 'Entregado'
                               ? 'bg-emerald-600 text-white'
                               : ord.estado === 'Despachado'
@@ -418,6 +462,58 @@ export function OrderTrackerModal({ isOpen, onClose }: OrderTrackerModalProps) {
                           {ord.estado}
                         </span>
                       </div>
+
+                      {/* Guía Completa de Prendas del Pedido */}
+                      <div className="bg-white rounded-2xl p-3 space-y-2 border border-zinc-200/60">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 block">
+                          Guía de Alistamiento ({ord.items.reduce((a, b) => a + b.cantidad, 0)} prendas)
+                        </span>
+                        <div className="divide-y divide-zinc-100">
+                          {ord.items.map((it, idx) => (
+                            <div
+                              key={it.cartItemId || `${ord.id}-${idx}`}
+                              className="py-2 first:pt-0 last:pb-0 flex items-center justify-between gap-2.5"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={
+                                    it.imagen ||
+                                    'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=800&q=85'
+                                  }
+                                  alt={it.nombre}
+                                  referrerPolicy="no-referrer"
+                                  className="w-11 h-11 rounded-xl object-cover bg-[#F5F5F7] shrink-0 border border-zinc-200/70"
+                                />
+                                <div className="min-w-0">
+                                  <p className="font-bold text-[#111111] truncate">
+                                    <span className="font-mono font-black mr-1">
+                                      {it.cantidad}x
+                                    </span>
+                                    {it.nombre}
+                                  </p>
+                                  <p className="text-[11px] text-zinc-500">
+                                    {it.categoria}
+                                    {it.marca_motivo ? ` · ${it.marca_motivo}` : ''} · Color:{' '}
+                                    <strong className="text-[#111111]">{it.color}</strong> · Talla:{' '}
+                                    <strong className="text-[#111111]">{it.talla}</strong>
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="font-mono font-bold text-[#111111] tabular-nums shrink-0">
+                                {formatCOP(it.precio * it.cantidad)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {ord.notas && (
+                        <p className="text-[11px] text-zinc-600 bg-white px-3 py-2 rounded-xl border border-zinc-200/60">
+                          <strong className="text-[#111111]">Notas: </strong>
+                          {ord.notas}
+                        </p>
+                      )}
 
                       {/* 4-Step Visual Progress Bar */}
                       {ord.estado !== 'Cancelado' && (
@@ -447,14 +543,25 @@ export function OrderTrackerModal({ isOpen, onClose }: OrderTrackerModalProps) {
                         </div>
                       )}
 
-                      <div className="pt-2 border-t border-zinc-200 flex items-center justify-between text-[11px] text-zinc-500">
-                        <span>
-                          {ord.items.reduce((a, b) => a + b.cantidad, 0)} prendas · Origen:{' '}
-                          <strong className="text-[#111111]">{ord.origen}</strong>
-                        </span>
-                        <span className="font-extrabold text-[#111111] tabular-nums text-xs">
-                          {formatCOP(ord.total)}
-                        </span>
+                      <div className="pt-2.5 border-t border-zinc-200 space-y-1 text-[11px] text-zinc-500">
+                        <div className="flex items-center justify-between">
+                          <span>Subtotal</span>
+                          <span className="font-mono font-semibold text-[#111111] tabular-nums">
+                            {formatCOP(ord.subtotal)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Envío ({ord.envioTexto || 'A convenir'})</span>
+                          <span className="font-mono font-semibold text-[#111111] tabular-nums">
+                            {ord.costoEnvio > 0 ? formatCOP(ord.costoEnvio) : 'Gratis ($0)'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between pt-1 text-xs font-extrabold text-[#111111]">
+                          <span>TOTAL ({ord.origen})</span>
+                          <span className="font-mono text-sm tabular-nums">
+                            {formatCOP(ord.total)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   );

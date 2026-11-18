@@ -31,8 +31,6 @@ import {
   X,
   Pencil,
   Upload,
-  BellRing,
-  Plug,
   CheckCircle2,
   MapPin,
   FileText,
@@ -54,16 +52,13 @@ export function AdminDashboard() {
     orders,
     storeConfig,
     updateStoreConfig,
-    plugins,
-    updatePluginConnector,
     stockMoves,
-    triggerManualPushTest,
   } = useStore();
 
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    'billing' | 'inventory' | 'plugins' | 'reports' | 'settings'
+    'billing' | 'inventory' | 'reports' | 'settings'
   >('billing');
 
   // Filter state in inventory tab
@@ -77,7 +72,7 @@ export function AdminDashboard() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const savingSettingsRef = React.useRef(false);
 
-  // Product Create / Edit Modal with Photos, COGS & IVA State
+  // Product Create / Edit Modal with Photos & Cost State
   const [showProductModal, setShowProductModal] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [prodReferencia, setProdReferencia] = useState('');
@@ -89,7 +84,6 @@ export function AdminDashboard() {
   const [prodPrecio, setProdPrecio] = useState<number>(95000);
   const [prodPrecioMayorista, setProdPrecioMayorista] = useState<number>(75000);
   const [prodCostoUnitario, setProdCostoUnitario] = useState<number>(42000);
-  const [prodIvaPorcentaje, setProdIvaPorcentaje] = useState<number>(19);
   const [prodAlertaMin, setProdAlertaMin] = useState<number>(4);
   const [prodDescripcion, setProdDescripcion] = useState('');
   const [prodImagenes, setProdImagenes] = useState<string[]>([]);
@@ -98,24 +92,16 @@ export function AdminDashboard() {
   const [prodModalError, setProdModalError] = useState<string | null>(null);
   const [productToDelete, setProductToDelete] = useState<Producto | null>(null);
 
-  // Settings form state (Odoo res.config.settings)
+  // Settings form state
   const [newStoreName, setNewStoreName] = useState(storeConfig.storeName);
-  const [newStoreNit, setNewStoreNit] = useState(storeConfig.storeNit);
   const [newPhone, setNewPhone] = useState(storeConfig.storePhone);
   const [newAddress, setNewAddress] = useState(storeConfig.storeAddress);
   const [newTagline, setNewTagline] = useState(storeConfig.corporateTagline);
-  const [newRegimen, setNewRegimen] = useState(
-    storeConfig.regimenTributario || 'Responsable de IVA (19%)'
-  );
-  const [newResolucion, setNewResolucion] = useState(
-    storeConfig.resolucionFacturacion ||
-      'Resolución DIAN 18764000012345 · Vigencia 2026'
-  );
   const [newPrefijo, setNewPrefijo] = useState(
-    storeConfig.prefijoFactura || 'FAC'
+    storeConfig.prefijoFactura || 'POS'
   );
   const [newRango, setNewRango] = useState(
-    storeConfig.rangoAutorizado || 'FAC-1000 a FAC-9999'
+    storeConfig.rangoAutorizado || 'POS-1000 a POS-9999'
   );
   const [newTarifaCartagena, setNewTarifaCartagena] = useState<number>(
     storeConfig.tarifaEnvioCartagena ?? 8000
@@ -134,17 +120,11 @@ export function AdminDashboard() {
 
   const openSettingsTab = () => {
     setNewStoreName(storeConfig.storeName);
-    setNewStoreNit(storeConfig.storeNit);
     setNewPhone(storeConfig.storePhone);
     setNewAddress(storeConfig.storeAddress);
     setNewTagline(storeConfig.corporateTagline);
-    setNewRegimen(storeConfig.regimenTributario || 'Responsable de IVA (19%)');
-    setNewResolucion(
-      storeConfig.resolucionFacturacion ||
-        'Resolución DIAN 18764000012345 · Vigencia 2026'
-    );
-    setNewPrefijo(storeConfig.prefijoFactura || 'FAC');
-    setNewRango(storeConfig.rangoAutorizado || 'FAC-1000 a FAC-9999');
+    setNewPrefijo(storeConfig.prefijoFactura || 'POS');
+    setNewRango(storeConfig.rangoAutorizado || 'POS-1000 a POS-9999');
     setNewTarifaCartagena(storeConfig.tarifaEnvioCartagena ?? 8000);
     setNewTarifaNacional(storeConfig.tarifaEnvioNacional ?? 16000);
     setNewEnvioGratisDesde(storeConfig.envioGratisDesde ?? 200000);
@@ -167,7 +147,7 @@ export function AdminDashboard() {
     }
   };
 
-  // Open Product Create / Edit Modal with Multi-Photo Gallery, COGS & IVA
+  // Open Product Create / Edit Modal with Multi-Photo Gallery & Cost
   const openCreateProductModal = () => {
     let maxRef = 0;
     products.forEach((p) => {
@@ -187,7 +167,6 @@ export function AdminDashboard() {
     setProdPrecio(95000);
     setProdPrecioMayorista(75000);
     setProdCostoUnitario(42000);
-    setProdIvaPorcentaje(19);
     setProdAlertaMin(4);
     setProdDescripcion('');
     setProdImagenes([]);
@@ -217,7 +196,6 @@ export function AdminDashboard() {
     setProdPrecio(prod.precio_base);
     setProdPrecioMayorista(prod.precio_mayorista ?? Math.round(prod.precio_base * 0.8));
     setProdCostoUnitario(prod.costo_unitario ?? Math.round(prod.precio_base * 0.45));
-    setProdIvaPorcentaje(prod.iva_porcentaje ?? 19);
     setProdAlertaMin(prod.configuracion_alertas?.stock_minimo_alerta ?? 4);
     setProdDescripcion(prod.descripcion);
     setProdImagenes(
@@ -377,7 +355,7 @@ export function AdminDashboard() {
             ? Math.max(0, Number(prodPrecioMayorista) || 0)
             : undefined,
         costo_unitario: Math.max(0, Number(prodCostoUnitario) || 0),
-        iva_porcentaje: Math.max(0, Number(prodIvaPorcentaje ?? 19)),
+        iva_porcentaje: 0,
         configuracion_alertas: {
           stock_minimo_alerta: Math.max(1, Number(prodAlertaMin) || 3),
         },
@@ -477,13 +455,10 @@ export function AdminDashboard() {
       const res = await updateStoreConfig(
         {
           storeName: newStoreName.trim() || 'La Santa Store',
-          storeNit: newStoreNit.trim() || '901.482.319-4',
           storePhone: newPhone.trim(),
           storeAddress: newAddress.trim(),
           corporateTagline: newTagline.trim(),
-          regimenTributario: newRegimen.trim() || 'Responsable de IVA (19%)',
-          resolucionFacturacion: newResolucion.trim(),
-          prefijoFactura: newPrefijo.trim().toUpperCase() || 'FAC',
+          prefijoFactura: newPrefijo.trim().toUpperCase() || 'POS',
           rangoAutorizado: newRango.trim(),
           tarifaEnvioCartagena: Math.max(0, Number(newTarifaCartagena) || 0),
           tarifaEnvioNacional: Math.max(0, Number(newTarifaNacional) || 0),
@@ -524,19 +499,19 @@ export function AdminDashboard() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `lasanta-erp-backup-${new Date()
+      a.download = `lasanta-backup-${new Date()
         .toISOString()
         .slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showToast('Respaldo contable JSON exportado exitosamente.');
+      showToast('Respaldo JSON exportado exitosamente.');
       return;
     }
 
     // CSV export of invoices/orders ledger
     const headers = [
       'Orden',
-      'Factura',
+      'ReciboPOS',
       'NotaCredito',
       'Fecha',
       'Origen',
@@ -544,8 +519,6 @@ export function AdminDashboard() {
       'Cliente',
       'Documento',
       'Subtotal',
-      'BaseGravable',
-      'IVA19',
       'Envio',
       'Descuento',
       'Total',
@@ -562,8 +535,6 @@ export function AdminDashboard() {
         `"${(o.clienteNombre || '').replace(/"/g, '""')}"`,
         o.clienteDocumento || '',
         o.subtotal,
-        o.baseGravable ?? Math.round(o.subtotal / 1.19),
-        o.impuestoIva ?? o.subtotal - Math.round(o.subtotal / 1.19),
         o.costoEnvio,
         o.descuentoManual || 0,
         o.total,
@@ -575,12 +546,12 @@ export function AdminDashboard() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `lasanta-libro-facturas-${new Date()
+    a.download = `lasanta-libro-ventas-${new Date()
       .toISOString()
       .slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('Libro contable de facturas exportado en CSV.');
+    showToast('Libro de ventas exportado en CSV.');
   };
 
   return (
@@ -622,10 +593,10 @@ export function AdminDashboard() {
               </div>
               <div>
                 <h1 className="text-sm sm:text-base font-extrabold text-[#111111]">
-                  Consola Administrativa POS &amp; ERP
+                  Consola Administrativa
                 </h1>
                 <p className="text-[11px] text-zinc-500 hidden sm:block">
-                  Facturación POS · Inventario Kardex · Notificaciones Push · Plugins API
+                  Gestión Comercial y Control Operativo
                 </p>
               </div>
             </div>
@@ -668,10 +639,10 @@ export function AdminDashboard() {
                 <span>Acceso Administrativo</span>
               </div>
               <h2 className="text-lg font-extrabold text-[#111111]">
-                Acceso al Sistema POS &amp; ERP
+                Consola Administrativa
               </h2>
               <p className="text-xs text-zinc-500">
-                Ingresa tu código PIN de seguridad para operar la facturación, el inventario y los despachos.
+                Ingresa tu código PIN de seguridad para operar la gestión comercial, el inventario y los despachos.
               </p>
             </div>
 
@@ -701,7 +672,7 @@ export function AdminDashboard() {
               type="submit"
               className="w-full py-3.5 rounded-full bg-[#111111] text-white font-bold text-xs uppercase tracking-wider hover:bg-zinc-800 transition"
             >
-              Ingresar al Sistema POS
+              Ingresar a la Consola
             </button>
 
             <div className="pt-2 border-t border-zinc-200">
@@ -751,21 +722,6 @@ export function AdminDashboard() {
             </button>
 
             <button
-              onClick={() => setActiveTab('plugins')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-full whitespace-nowrap transition-all ${
-                activeTab === 'plugins'
-                  ? 'bg-[#111111] text-white'
-                  : 'bg-[#F5F5F7] text-zinc-600 hover:text-[#111111]'
-              }`}
-            >
-              <Plug className="w-4 h-4" />
-              <span>Plugins, Pasarelas & API</span>
-              <span className="text-[11px] font-mono opacity-80 tabular-nums">
-                ({plugins.filter((p) => p.activo).length}/{plugins.length})
-              </span>
-            </button>
-
-            <button
               onClick={() => setActiveTab('reports')}
               className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-full whitespace-nowrap transition-all ${
                 activeTab === 'reports'
@@ -774,7 +730,7 @@ export function AdminDashboard() {
               }`}
             >
               <TrendingUp className="w-4 h-4" />
-              <span>Métricas & Kardex</span>
+              <span>Métricas</span>
             </button>
 
             <button
@@ -797,23 +753,29 @@ export function AdminDashboard() {
             </div>
           )}
 
-          {/* TAB 2: SISTEMA DE INVENTARIO POS PROFESIONAL CON FOTOS, COGS & MARGEN */}
+          {/* TAB 2: SISTEMA DE INVENTARIO CON FOTOS */}
           {activeTab === 'inventory' && (
             <div className="space-y-5">
-              <div className="flex flex-wrap items-center justify-between gap-3 bg-[#F5F5F7] p-4 rounded-3xl">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#F5F5F7] p-5 rounded-[28px]">
                 <div>
-                  <h2 className="text-sm sm:text-base font-extrabold text-[#111111]">
-                    Gestión de Inventario POS con Fotografías, Costo Unitario e IVA
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                      Módulo Operativo · Catálogo y Existencias
+                    </span>
+                  </div>
+                  <h2 className="text-lg sm:text-xl font-black text-[#111111] tracking-tight mt-0.5">
+                    Inventario de Productos y Bodega
                   </h2>
-                  <p className="text-xs text-zinc-500">
-                    Crea prendas con compresión WebP automática, administra costo unitario (COGS), IVA y existencias por talla en tiempo real.
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Administra fotografías, precios al detal y al mayor, costos y existencias por talla en tiempo real.
                   </p>
                 </div>
 
                 <button
                   type="button"
                   onClick={openCreateProductModal}
-                  className="px-5 py-2.5 rounded-full bg-[#111111] text-white text-xs font-bold flex items-center gap-1.5 hover:bg-zinc-800 transition"
+                  className="px-5 py-2.5 rounded-full bg-[#111111] text-white text-xs font-bold flex items-center gap-1.5 hover:bg-zinc-800 transition shrink-0 self-start lg:self-auto"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Nuevo Producto con Foto</span>
@@ -903,8 +865,7 @@ export function AdminDashboard() {
                                 </span>
                               )}
                               <span className="text-[11px] text-zinc-500 font-mono">
-                                Costo: {formatCOP(unitCost)} · Margen: {marginPct}% · IVA:{' '}
-                                {prod.iva_porcentaje ?? 19}%
+                                Costo: {formatCOP(unitCost)} · Margen: {marginPct}%
                               </span>
                             </div>
                           </div>
@@ -1068,141 +1029,26 @@ export function AdminDashboard() {
             </div>
           )}
 
-          {/* TAB 3: PLUGINS, PASARELAS DE PAGO Y ARQUITECTURA BACKEND */}
-          {activeTab === 'plugins' && (
+          {/* TAB 3: MÉTRICAS Y BALANCE OPERATIVO */}
+          {activeTab === 'reports' && (
             <div className="space-y-5">
-              <div className="bg-[#F5F5F7] rounded-3xl p-5 flex flex-wrap items-center justify-between gap-4">
-                <div className="space-y-1 max-w-2xl">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
-                    Arquitectura Backend API REST
-                  </span>
-                  <h2 className="text-base sm:text-lg font-extrabold text-[#111111]">
-                    Centro de Plugins, Pasarelas de Pago y Conectores Logísticos
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#F5F5F7] p-5 rounded-[28px]">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                      Módulo Operativo · Balance y Trazabilidad
+                    </span>
+                  </div>
+                  <h2 className="text-lg sm:text-xl font-black text-[#111111] tracking-tight mt-0.5">
+                    Métricas y Balance de Operación
                   </h2>
-                  <p className="text-xs text-zinc-600 leading-relaxed">
-                    El backend de la tienda opera sobre controladores REST transaccionales con persistencia MySQL (<code>/api/store</code>, <code>/api/products</code>, <code>/api/orders</code>, <code>/api/plugins</code> y <code>/api/webhooks</code>) preparados para activar pasarelas de pago y transportadoras.
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Resumen de ingresos, valoración de inventario en bodega y trazabilidad de movimientos.
                   </p>
                 </div>
-
-                {orders[0] && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      triggerManualPushTest(orders[0], 'Despachado');
-                      showToast('Notificación Push de prueba disparada correctamente.');
-                    }}
-                    className="px-4 py-2.5 rounded-full bg-[#111111] text-white text-xs font-bold flex items-center gap-1.5 hover:bg-zinc-800 transition shrink-0"
-                  >
-                    <BellRing className="w-4 h-4" />
-                    <span>Simular Push de Despacho</span>
-                  </button>
-                )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {plugins.map((plg) => (
-                  <div
-                    key={plg.id}
-                    className="bg-[#F5F5F7] rounded-3xl p-5 flex flex-col justify-between space-y-4 border border-zinc-200/70"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="px-3 py-1 rounded-full bg-white text-[10px] font-bold uppercase tracking-wider text-zinc-600">
-                          {plg.categoria}
-                        </span>
-                        <span
-                          className={`px-3 py-1 rounded-full text-[11px] font-bold ${
-                            plg.activo
-                              ? 'bg-[#111111] text-white'
-                              : 'bg-zinc-200 text-zinc-600'
-                          }`}
-                        >
-                          {plg.activo ? 'Conector Activo' : 'Listo para Activar'}
-                        </span>
-                      </div>
-
-                      <h3 className="text-sm font-extrabold text-[#111111]">
-                        {plg.nombre}
-                      </h3>
-                      <p className="text-xs text-zinc-600 leading-relaxed">
-                        {plg.descripcion}
-                      </p>
-                    </div>
-
-                    <div className="bg-white rounded-2xl p-3.5 space-y-2.5 text-xs">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[10px] text-zinc-400 font-semibold block mb-1">
-                            Entorno de Operación
-                          </label>
-                          <select
-                            value={plg.modo}
-                            onChange={(e) =>
-                              updatePluginConnector(plg.id, {
-                                modo: e.target.value as 'Sandbox / Pruebas' | 'Producción',
-                              })
-                            }
-                            className="w-full bg-[#F5F5F7] rounded-xl px-2.5 py-1.5 text-xs font-semibold text-[#111111]"
-                          >
-                            <option value="Sandbox / Pruebas">Sandbox / Pruebas</option>
-                            <option value="Producción">Producción</option>
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="text-[10px] text-zinc-400 font-semibold block mb-1">
-                            Llave Pública / ID Comercio
-                          </label>
-                          <input
-                            type="text"
-                            value={plg.publicKey || ''}
-                            onChange={(e) =>
-                              updatePluginConnector(plg.id, { publicKey: e.target.value })
-                            }
-                            placeholder="Ingresa llave API..."
-                            className="w-full bg-[#F5F5F7] rounded-xl px-2.5 py-1.5 text-xs font-mono text-[#111111]"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-1 border-t border-zinc-100">
-                        <span className="font-mono truncate">Webhook: {plg.webhookUrl}</span>
-                        <span>{plg.comisionTexto}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-[11px] text-zinc-500">
-                        {plg.ultimaSincronizacion}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          updatePluginConnector(plg.id, { activo: !plg.activo });
-                          showToast(
-                            !plg.activo
-                              ? `Conector "${plg.nombre}" activado en el backend.`
-                              : `Conector "${plg.nombre}" puesto en espera.`
-                          );
-                        }}
-                        className={`px-4 py-2 rounded-full text-xs font-bold transition ${
-                          plg.activo
-                            ? 'bg-white text-[#111111] border border-zinc-300 hover:bg-zinc-100'
-                            : 'bg-[#111111] text-white hover:bg-zinc-800'
-                        }`}
-                      >
-                        {plg.activo ? 'Desactivar Conector' : 'Conectar / Activar'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: MÉTRICAS Y REPORTES FINANCIEROS (CON COSTO COGS Y UTILIDAD BRUTA) */}
-          {activeTab === 'reports' && (
-            <div className="space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="bg-[#F5F5F7] p-4 rounded-3xl">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">
@@ -1243,7 +1089,7 @@ export function AdminDashboard() {
 
               <div className="bg-[#F5F5F7] rounded-3xl p-5 space-y-3">
                 <h4 className="text-xs font-bold text-[#111111] uppercase tracking-wider">
-                  Valoración Contable de Inventario por Referencia (PVP vs. Costo COGS)
+                  Valoración de Inventario por Referencia
                 </h4>
                 <div className="space-y-2.5 text-xs">
                   {products.map((p, idx) => {
@@ -1270,7 +1116,7 @@ export function AdminDashboard() {
                             </p>
                             <p className="text-[11px] text-zinc-500">
                               {p.referencia || p.id} · {p.categoria} · Costo u.:{' '}
-                              {formatCOP(unitCost)} · IVA {p.iva_porcentaje ?? 19}%
+                              {formatCOP(unitCost)}
                             </p>
                           </div>
                         </div>
@@ -1289,15 +1135,15 @@ export function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Kardex Inmutable de Movimientos de Almacén (Odoo stock.move / erp_stock_moves) */}
+              {/* Historial de Movimientos de Inventario */}
               <div className="bg-[#F5F5F7] rounded-3xl p-5 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h4 className="text-xs font-bold text-[#111111] uppercase tracking-wider">
-                      Kardex Inmutable de Movimientos de Almacén (erp_stock_moves)
+                      Historial de Movimientos
                     </h4>
                     <p className="text-[11px] text-zinc-500">
-                      Trazabilidad histórica de salidas por venta POS, devoluciones por Nota Crédito y reposiciones de bodega.
+                      Trazabilidad de entradas, salidas, traslados y ajustes de inventario.
                     </p>
                   </div>
                   <span className="px-3 py-1 rounded-full bg-white text-[11px] font-mono font-bold text-[#111111]">
@@ -1378,38 +1224,44 @@ export function AdminDashboard() {
             </div>
           )}
 
-          {/* TAB 5: CONFIGURACIÓN CORPORATIVA */}
+          {/* TAB 4: CONFIGURACIÓN GENERAL */}
           {activeTab === 'settings' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-5">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#F5F5F7] p-5 rounded-[28px]">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                      Módulo Operativo · Ajustes del Sistema
+                    </span>
+                  </div>
+                  <h2 className="text-lg sm:text-xl font-black text-[#111111] tracking-tight mt-0.5">
+                    Configuración General
+                  </h2>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Datos de la tienda, tarifas de envío, numeración de recibos POS, seguridad y respaldos.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <form
                 onSubmit={handleSaveSettings}
                 className="bg-[#F5F5F7] rounded-3xl p-5 space-y-4"
               >
                 <h3 className="text-sm font-extrabold text-[#111111]">
-                  Datos Corporativos y Configuración General
+                  Datos de la Tienda y Operación
                 </h3>
 
                 <div>
                   <label className="text-xs font-semibold text-zinc-600 block mb-1">
-                    Razón Social / Nombre de la Tienda
+                    Nombre de la Tienda
                   </label>
                   <input
                     type="text"
                     value={newStoreName}
                     onChange={(e) => setNewStoreName(e.target.value)}
                     className="w-full bg-white rounded-2xl px-3.5 py-2.5 text-xs text-[#111111] focus:outline-none focus:ring-1 focus:ring-[#111111]"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-zinc-600 block mb-1">
-                    NIT / Identificación Tributaria
-                  </label>
-                  <input
-                    type="text"
-                    value={newStoreNit}
-                    onChange={(e) => setNewStoreNit(e.target.value)}
-                    className="w-full bg-white rounded-2xl px-3.5 py-2.5 text-xs text-[#111111] font-mono focus:outline-none focus:ring-1 focus:ring-[#111111]"
                   />
                 </div>
 
@@ -1459,51 +1311,26 @@ export function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-zinc-200">
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-600 block mb-1">
-                      Régimen Tributario (DIAN)
-                    </label>
+                <div className="pt-2 border-t border-zinc-200">
+                  <label className="text-xs font-semibold text-zinc-600 block mb-1">
+                    Prefijo y Numeración POS (Comprobante Interno)
+                  </label>
+                  <div className="flex gap-2">
                     <input
                       type="text"
-                      value={newRegimen}
-                      onChange={(e) => setNewRegimen(e.target.value)}
-                      className="w-full bg-white rounded-2xl px-3.5 py-2 text-xs text-[#111111]"
+                      value={newPrefijo}
+                      onChange={(e) => setNewPrefijo(e.target.value)}
+                      placeholder="POS"
+                      className="w-24 bg-white rounded-2xl px-3 py-2 text-xs font-mono font-bold text-[#111111]"
+                    />
+                    <input
+                      type="text"
+                      value={newRango}
+                      onChange={(e) => setNewRango(e.target.value)}
+                      placeholder="POS-1000 a POS-9999"
+                      className="flex-1 bg-white rounded-2xl px-3 py-2 text-xs font-mono text-[#111111]"
                     />
                   </div>
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-600 block mb-1">
-                      Prefijo &amp; Rango Autorizado
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={newPrefijo}
-                        onChange={(e) => setNewPrefijo(e.target.value)}
-                        placeholder="FAC"
-                        className="w-20 bg-white rounded-2xl px-3 py-2 text-xs font-mono font-bold text-[#111111]"
-                      />
-                      <input
-                        type="text"
-                        value={newRango}
-                        onChange={(e) => setNewRango(e.target.value)}
-                        placeholder="FAC-1000 a FAC-9999"
-                        className="flex-1 bg-white rounded-2xl px-3 py-2 text-xs font-mono text-[#111111]"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-zinc-600 block mb-1">
-                    Resolución de Facturación / Texto Legal en Factura
-                  </label>
-                  <input
-                    type="text"
-                    value={newResolucion}
-                    onChange={(e) => setNewResolucion(e.target.value)}
-                    className="w-full bg-white rounded-2xl px-3.5 py-2 text-xs text-[#111111]"
-                  />
                 </div>
 
                 <div className="grid grid-cols-3 gap-2.5 pt-2 border-t border-zinc-200">
@@ -1599,7 +1426,7 @@ export function AdminDashboard() {
                     disabled={isSavingSettings}
                     className="py-3 px-6 bg-[#111111] text-white font-bold text-xs rounded-full hover:bg-zinc-800 transition disabled:opacity-50"
                   >
-                    {isSavingSettings ? 'Guardando...' : 'Guardar Parámetros ERP'}
+                    {isSavingSettings ? 'Guardando...' : 'Guardar Configuración'}
                   </button>
                   {settingsSuccess && (
                     <span className="text-xs text-[#111111] font-semibold">
@@ -1613,10 +1440,10 @@ export function AdminDashboard() {
                 <div className="bg-[#F5F5F7] rounded-3xl p-5 space-y-4">
                   <div>
                     <h4 className="text-sm font-extrabold text-[#111111]">
-                      Auditoría y Copias de Seguridad Contables (JSON / CSV)
+                      Copias de Seguridad y Exportación (CSV / JSON)
                     </h4>
                     <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
-                      Exporta en cualquier momento el libro mayor de facturas emitidas, Notas Crédito, catálogo con costos COGS y el Kardex de movimientos de almacén.
+                      Exporta en cualquier momento el libro de ventas, recibos POS, catálogo con costos e historial completo de movimientos.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2.5">
@@ -1625,14 +1452,14 @@ export function AdminDashboard() {
                       onClick={() => handleExportAccountingBackup('csv')}
                       className="px-4 py-2.5 rounded-full bg-[#111111] text-white text-xs font-bold hover:bg-zinc-800 transition"
                     >
-                      Exportar Libro de Facturas (.CSV)
+                      Exportar Libro de Ventas (.CSV)
                     </button>
                     <button
                       type="button"
                       onClick={() => handleExportAccountingBackup('json')}
                       className="px-4 py-2.5 rounded-full bg-white border border-zinc-200 text-[#111111] text-xs font-bold hover:bg-zinc-100 transition"
                     >
-                      Backup Completo ERP + Kardex (.JSON)
+                      Backup Completo del Sistema (.JSON)
                     </button>
                   </div>
                 </div>
@@ -1650,7 +1477,7 @@ export function AdminDashboard() {
                 <div className="flex items-center justify-between pt-3 border-t border-zinc-200">
                   {resetSuccess ? (
                     <span className="text-xs text-[#111111] font-semibold">
-                      ✓ Catálogo y facturas reiniciados
+                      ✓ Catálogo y ventas reiniciados
                     </span>
                   ) : (
                     <span className="text-[11px] text-zinc-500">Sincronizado con MySQL Hostinger</span>
@@ -1669,6 +1496,7 @@ export function AdminDashboard() {
                   </button>
                 </div>
                 </div>
+              </div>
               </div>
             </div>
           )}
@@ -1887,7 +1715,7 @@ export function AdminDashboard() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <div>
                   <label className="text-[11px] text-zinc-500 block mb-1">
                     Precio Detal PVP ($ COP)
@@ -1926,7 +1754,7 @@ export function AdminDashboard() {
                 </div>
                 <div>
                   <label className="text-[11px] text-zinc-500 block mb-1">
-                    Costo Unitario COGS ($ COP)
+                    Costo Unitario ($ COP)
                   </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 font-mono text-xs">
@@ -1941,22 +1769,6 @@ export function AdminDashboard() {
                       className="w-full bg-[#F5F5F7] rounded-xl pl-6 pr-3 py-2 text-[#111111] font-mono tabular-nums"
                     />
                   </div>
-                </div>
-                <div>
-                  <label className="text-[11px] text-zinc-500 block mb-1">
-                    Impuesto IVA (%)
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="19"
-                    value={prodIvaPorcentaje === 0 ? '' : String(prodIvaPorcentaje)}
-                    onChange={(e) => {
-                      const raw = e.target.value.replace(/\D/g, '');
-                      setProdIvaPorcentaje(raw === '' ? 0 : Math.min(35, Number(raw)));
-                    }}
-                    className="w-full bg-[#F5F5F7] rounded-xl px-3 py-2 text-[#111111] font-mono tabular-nums"
-                  />
                 </div>
               </div>
 

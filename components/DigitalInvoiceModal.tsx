@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Image from 'next/image';
-import { Order, formatCOP, calculateTaxBreakdown } from '@/lib/data';
+import { Order, formatCOP } from '@/lib/data';
 import { useStore } from '@/lib/store';
 import {
   X,
@@ -89,7 +89,7 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
             <FileCheck2 className="w-4 h-4 text-[#111111]" />
             <span className="text-xs font-bold text-[#111111]">
               {order.invoiceNumber
-                ? `Factura de Venta POS ${order.invoiceNumber}`
+                ? `Recibo POS ${order.invoiceNumber}`
                 : `Orden de Pedido ${order.orderNumber}`}
             </span>
           </div>
@@ -128,9 +128,6 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
                 <h1 className="text-base font-extrabold text-[#111111]">
                   {storeConfig.storeName}
                 </h1>
-                <p className="text-[11px] text-zinc-600 font-semibold">
-                  NIT: {storeConfig.storeNit || '901.482.319-4'}
-                </p>
                 <p className="text-[11px] text-zinc-500">
                   Tel / WhatsApp: +{storeConfig.storePhone}
                 </p>
@@ -142,7 +139,7 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
 
             <div className="text-right">
               <span className="text-[10px] uppercase tracking-widest text-zinc-400 block">
-                {order.invoiceNumber ? 'Factura Oficial N°' : 'Orden de Pedido N°'}
+                {order.invoiceNumber ? 'Recibo POS N°' : 'Orden de Pedido N°'}
               </span>
               <p className="text-base font-extrabold text-[#111111] font-mono tabular-nums">
                 {order.invoiceNumber || order.orderNumber}
@@ -187,9 +184,11 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
               </p>
               <p className="font-bold text-[#111111] text-xs">{order.clienteNombre}</p>
               <p className="text-zinc-500 text-[11px]">
-                Cédula / NIT:{' '}
+                Documento:{' '}
                 <strong className="text-[#111111] font-mono">
-                  {order.clienteDocumento || '222222222222 (Consumidor Final)'}
+                  {order.clienteDocumento && order.clienteDocumento !== '222222222222'
+                    ? order.clienteDocumento
+                    : 'Cliente Mostrador'}
                 </strong>
               </p>
               {order.clienteTelefono && (
@@ -274,79 +273,57 @@ export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps
             </div>
           </div>
 
-          {/* Total Breakdown with DIAN / Odoo ERP Tax Calculation */}
-          {(() => {
-            const netGoods = Math.max(0, order.subtotal - (order.descuentoManual || 0));
-            const tax = calculateTaxBreakdown(netGoods, order.ivaPorcentaje ?? 19);
-            const baseGravable = order.baseGravable ?? tax.baseGravable;
-            const impuestoIva = order.impuestoIva ?? tax.impuestoIva;
-            const ivaRate = order.ivaPorcentaje ?? tax.ivaPorcentaje;
-
-            return (
-              <div className="bg-[#F5F5F7] p-4 rounded-2xl space-y-1.5 text-xs">
-                <div className="flex justify-between text-zinc-500">
-                  <span>
-                    Subtotal Bruto ({order.items.reduce((a, b) => a + b.cantidad, 0)} un.)
-                  </span>
-                  <span className="font-semibold text-[#111111] tabular-nums">
-                    {formatCOP(order.subtotal)}
-                  </span>
-                </div>
-                {order.descuentoManual && order.descuentoManual > 0 ? (
-                  <div className="flex justify-between text-zinc-700 font-medium">
-                    <span>Descuento Comercial Aplicado</span>
-                    <span className="tabular-nums">-{formatCOP(order.descuentoManual)}</span>
-                  </div>
-                ) : null}
-                <div className="flex justify-between text-zinc-500 pt-1 border-t border-zinc-200/70">
-                  <span>Base Gravable (Sin IVA)</span>
-                  <span className="font-mono text-[#111111] tabular-nums">
-                    {formatCOP(baseGravable)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-zinc-500">
-                  <span>Impuesto IVA ({ivaRate}% Incluido)</span>
-                  <span className="font-mono text-[#111111] tabular-nums">
-                    {formatCOP(impuestoIva)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-zinc-500">
-                  <span>Costo de Envío / Domicilio</span>
-                  <span className="text-[#111111] tabular-nums">
-                    {order.costoEnvio > 0 ? formatCOP(order.costoEnvio) : order.envioTexto}
-                  </span>
-                </div>
-                <div className="border-t border-zinc-200 pt-2.5 flex justify-between text-sm font-extrabold text-[#111111]">
-                  <span>TOTAL FACTURADO (COP)</span>
-                  <span className="text-base tabular-nums">{formatCOP(order.total)}</span>
-                </div>
-                {(order.modalidadVenta === 'Crédito' ||
-                  order.modalidadVenta === 'Consignación' ||
-                  (order.saldoPendiente !== undefined && order.saldoPendiente > 0)) && (
-                  <div className="border-t border-zinc-200/80 pt-2 space-y-1">
-                    <div className="flex justify-between text-emerald-700 font-bold">
-                      <span>Monto Abonado / Pagado</span>
-                      <span className="font-mono tabular-nums">
-                        {formatCOP(order.montoAbonado || 0)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-amber-800 font-extrabold">
-                      <span>
-                        Saldo Pendiente ({order.modalidadVenta || 'Crédito'})
-                        {order.fechaVencimiento ? ` · Vence: ${order.fechaVencimiento}` : ''}
-                      </span>
-                      <span className="font-mono tabular-nums">
-                        {formatCOP(
-                          order.saldoPendiente ??
-                            Math.max(0, order.total - (order.montoAbonado || 0))
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                )}
+          {/* Total Breakdown */}
+          <div className="bg-[#F5F5F7] p-4 rounded-2xl space-y-1.5 text-xs">
+            <div className="flex justify-between text-zinc-500">
+              <span>
+                Subtotal ({order.items.reduce((a, b) => a + b.cantidad, 0)} un.)
+              </span>
+              <span className="font-semibold text-[#111111] tabular-nums">
+                {formatCOP(order.subtotal)}
+              </span>
+            </div>
+            {order.descuentoManual && order.descuentoManual > 0 ? (
+              <div className="flex justify-between text-zinc-700 font-medium">
+                <span>Descuento Comercial Aplicado</span>
+                <span className="tabular-nums">-{formatCOP(order.descuentoManual)}</span>
               </div>
-            );
-          })()}
+            ) : null}
+            <div className="flex justify-between text-zinc-500">
+              <span>Costo de Envío / Domicilio</span>
+              <span className="text-[#111111] tabular-nums">
+                {order.costoEnvio > 0 ? formatCOP(order.costoEnvio) : order.envioTexto}
+              </span>
+            </div>
+            <div className="border-t border-zinc-200 pt-2.5 flex justify-between text-sm font-extrabold text-[#111111]">
+              <span>TOTAL (COP)</span>
+              <span className="text-base tabular-nums">{formatCOP(order.total)}</span>
+            </div>
+            {(order.modalidadVenta === 'Crédito' ||
+              order.modalidadVenta === 'Consignación' ||
+              (order.saldoPendiente !== undefined && order.saldoPendiente > 0)) && (
+              <div className="border-t border-zinc-200/80 pt-2 space-y-1">
+                <div className="flex justify-between text-emerald-700 font-bold">
+                  <span>Monto Abonado / Pagado</span>
+                  <span className="font-mono tabular-nums">
+                    {formatCOP(order.montoAbonado || 0)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-amber-800 font-extrabold">
+                  <span>
+                    Saldo Pendiente ({order.modalidadVenta || 'Crédito'})
+                    {order.fechaVencimiento ? ` · Vence: ${order.fechaVencimiento}` : ''}
+                  </span>
+                  <span className="font-mono tabular-nums">
+                    {formatCOP(
+                      order.saldoPendiente ??
+                        Math.max(0, order.total - (order.montoAbonado || 0))
+                    )}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
 
           {order.notas && (
             <div className="p-3 rounded-xl bg-[#F5F5F7] text-[11px] text-zinc-600">

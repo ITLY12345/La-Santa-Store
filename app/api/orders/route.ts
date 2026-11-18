@@ -328,7 +328,23 @@ export async function POST(req: NextRequest) {
     const orderNum = `#ORD-${nextOrderSeq}`;
     const orderId = `ord-${Date.now()}-${nextOrderSeq}`;
 
-    const appBaseUrl = process.env.APP_URL || 'https://lasantastore.enigmaproducciones.com';
+    const forwardedHost =
+      req.headers.get('x-forwarded-host') || req.headers.get('host');
+    const forwardedProto = req.headers.get('x-forwarded-proto') || 'https';
+    const resolvedOrigin =
+      forwardedHost &&
+      !forwardedHost.startsWith('localhost') &&
+      !forwardedHost.startsWith('127.0.0.1')
+        ? `${forwardedProto.split(',')[0].trim()}://${forwardedHost
+            .split(',')[0]
+            .trim()}`
+        : req.nextUrl?.origin;
+    const appBaseUrl =
+      (resolvedOrigin && !resolvedOrigin.includes('localhost')
+        ? resolvedOrigin
+        : null) ||
+      process.env.APP_URL ||
+      'https://ivory-kangaroo-451599.hostingersite.com';
     const referenceUrl = `${appBaseUrl.replace(/\/$/, '')}/?pedido=${orderNum.replace('#', '')}`;
 
     const newOrder: Order = {

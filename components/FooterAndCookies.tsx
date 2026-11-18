@@ -31,9 +31,6 @@ export function StoreFooter() {
                 <h3 className="text-sm font-extrabold text-[#111111]">
                   {storeConfig.storeName}
                 </h3>
-                <p className="text-[11px] text-zinc-500">
-                  NIT: {storeConfig.storeNit || '901.482.319-4'}
-                </p>
               </div>
             </div>
             <p className="text-xs text-zinc-600 leading-relaxed max-w-sm">
@@ -120,9 +117,9 @@ export function StoreFooter() {
             <Link
               href="/admin"
               className="text-[10px] text-zinc-400/60 hover:text-zinc-500 transition-colors select-none ml-1"
-              title="Acceso"
+              title="Versión"
             >
-              [Acceso Sistema POS]
+              v2.4
             </Link>
           </div>
         </div>

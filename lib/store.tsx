@@ -615,7 +615,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     fetch('/api/auth', { method: 'DELETE' }).catch(() => {});
   };
 
-  const trackOrderByQuery = async (query: string): Promise<Order[]> => {
+  const trackOrderByQuery = useCallback(async (query: string): Promise<Order[]> => {
     try {
       const res = await fetch('/api/orders/track', {
         method: 'POST',
@@ -635,7 +635,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } catch {
       return [];
     }
-  };
+  }, []);
 
   // Reconcile stock helper on client for instant optimistic updates
   const reconcileClientStock = (

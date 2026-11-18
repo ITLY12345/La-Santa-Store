@@ -328,7 +328,7 @@ function ProductDetailContent({
                 {formatCOP(producto.precio_base)}
               </span>
               <span className="text-xs font-semibold text-zinc-400">
-                Precio oficial · IVA incluido
+                Precio oficial
               </span>
             </div>
 

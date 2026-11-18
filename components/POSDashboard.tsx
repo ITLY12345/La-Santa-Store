@@ -650,16 +650,20 @@ export function POSDashboard({}: POSDashboardProps) {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#F5F5F7] p-5 rounded-[28px]">
         <div>
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
             <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
-              Sistema POS · Control de Bodega, Mayor, Detal, Crédito y Consignación
+              Módulo Operativo · Ventas, Cartera y Bodega
             </span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-[#111111] tracking-tight">
-            Terminal POS, Cartera &amp; Traslados de Bodega
-          </h1>
+          <h2 className="text-lg sm:text-xl font-black text-[#111111] tracking-tight mt-0.5">
+            Facturación POS, Cartera &amp; Traslados
+          </h2>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Consecutivo Activo: <strong>FAC-{storeConfig.nextInvoiceSequence}</strong>
+            Consecutivo activo:{' '}
+            <strong className="font-mono text-[#111111]">
+              {storeConfig.prefijoFactura || 'POS'}-{storeConfig.nextInvoiceSequence}
+            </strong>{' '}
+            · Control de ventas al detal, mayor, crédito y consignación.
           </p>
         </div>
 
@@ -775,7 +779,7 @@ export function POSDashboard({}: POSDashboardProps) {
                   type="text"
                   value={invoiceSearch}
                   onChange={(e) => setInvoiceSearch(e.target.value)}
-                  placeholder="Buscar por factura (FAC-1001), cliente, cédula o guía..."
+                  placeholder="Buscar por comprobante (POS-1001), cliente, documento o guía..."
                   className="w-full bg-white rounded-full pl-9 pr-4 py-2 text-xs text-[#111111] placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-[#111111]"
                 />
                 {invoiceSearch && (
@@ -903,7 +907,7 @@ export function POSDashboard({}: POSDashboardProps) {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-200/70">
                       <div className="flex items-center gap-2.5">
                         <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center font-mono font-black text-xs text-[#111111] shadow-2xs">
-                          {inv.invoiceNumber ? inv.invoiceNumber.replace('FAC-', '') : 'ORD'}
+                          {inv.invoiceNumber ? inv.invoiceNumber.replace(/^[A-Z]+-/, '') : 'ORD'}
                         </div>
                         <div>
                           <div className="flex flex-wrap items-center gap-1.5">
@@ -955,7 +959,9 @@ export function POSDashboard({}: POSDashboardProps) {
                           </div>
                           <p className="text-[11px] text-zinc-500 mt-0.5">
                             {inv.fecha} · Cliente: <strong>{inv.clienteNombre}</strong>
-                            {inv.clienteDocumento ? ` (CC/NIT: ${inv.clienteDocumento})` : ''}
+                            {inv.clienteDocumento && inv.clienteDocumento !== '222222222222'
+                              ? ` (Doc: ${inv.clienteDocumento})`
+                              : ''}
                           </p>
                         </div>
                       </div>
@@ -1255,7 +1261,7 @@ export function POSDashboard({}: POSDashboardProps) {
                 <h3 className="text-sm font-black text-[#111111]">Ticket de Venta POS</h3>
               </div>
               <span className="font-mono text-xs font-bold text-zinc-500">
-                FAC-{storeConfig.nextInvoiceSequence}
+                {storeConfig.prefijoFactura || 'POS'}-{storeConfig.nextInvoiceSequence}
               </span>
             </div>
 
@@ -1413,7 +1419,7 @@ export function POSDashboard({}: POSDashboardProps) {
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-zinc-500 block mb-1">
-                    Cédula / NIT
+                    Documento / Cédula
                   </label>
                   <input
                     type="text"
@@ -1591,7 +1597,7 @@ export function POSDashboard({}: POSDashboardProps) {
                 Registrar Traslado de Mercancía
               </h3>
               <p className="text-[11px] text-zinc-500 mt-0.5">
-                Mueve mercancía desde la Bodega Principal hacia el Punto de Venta o en Consignación con trazabilidad en Kardex.
+                Mueve mercancía desde la Bodega Principal hacia el Punto de Venta o en Consignación con registro automático en el historial.
               </p>
             </div>
 
@@ -1750,7 +1756,7 @@ export function POSDashboard({}: POSDashboardProps) {
               type="submit"
               className="w-full py-3.5 rounded-full bg-[#111111] text-white font-bold text-xs hover:bg-zinc-800 transition"
             >
-              Ejecutar Traslado &amp; Asentar en Kardex
+              Ejecutar Traslado de Inventario
             </button>
           </form>
 
@@ -2028,7 +2034,7 @@ export function POSDashboard({}: POSDashboardProps) {
                 </div>
                 <div>
                   <label className="text-[11px] font-bold text-zinc-500 block mb-1">
-                    Cédula / NIT
+                    Documento / Cédula
                   </label>
                   <input
                     type="text"
@@ -2372,7 +2378,7 @@ export function POSDashboard({}: POSDashboardProps) {
               </h3>
               <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
                 {invoiceToDelete.invoiceNumber
-                  ? 'Por normativa contable (DIAN / Odoo ERP), las facturas en firme no se borran físicamente: se emitirá una Nota Crédito oficial (NC-XXXX), pasará a estado Cancelado y se devolverá el stock a bodega.'
+                  ? 'Para mantener la trazabilidad interna, los recibos emitidos no se borran físicamente: se generará una Nota Crédito interna (NC-XXXX), pasará a estado Cancelado y las unidades volverán al inventario.'
                   : 'Este pedido en borrador aún no tiene factura fiscal emitida y será retirado del listado.'}
               </p>
             </div>

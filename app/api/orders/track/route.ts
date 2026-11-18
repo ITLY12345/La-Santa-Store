@@ -70,6 +70,24 @@ export async function POST(req: NextRequest) {
       return false;
     });
 
+    const isExactCodeLookup = query.length >= 4;
+    const responseOrders = matchedOrders.map((o) => {
+      if (isExactCodeLookup) {
+        const cleanQuery = query.replace(/^#/, '');
+        const cleanOrd = o.orderNumber.toLowerCase().replace(/^#/, '');
+        const cleanFac = (o.invoiceNumber || '').toLowerCase().replace(/^#/, '');
+        const cleanGuia = (o.guiaSeguimiento || '').toLowerCase();
+        if (
+          cleanOrd === cleanQuery ||
+          cleanFac === cleanQuery ||
+          (cleanGuia.length >= 4 && cleanGuia === cleanQuery)
+        ) {
+          return o;
+        }
+      }
+      return maskOrderForPublic(o);
+    });
+
     const matchedIdSet = new Set(matchedOrders.map((o) => o.id));
     const matchedNotifications = db.notifications.filter((n) =>
       matchedIdSet.has(n.orderId)
@@ -77,7 +95,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      orders: matchedOrders.map(maskOrderForPublic),
+      orders: responseOrders,
       notifications: matchedNotifications,
     });
   } catch (err) {

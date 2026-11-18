@@ -46,10 +46,10 @@ export default function POSPage() {
             </Link>
             <div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 block">
-                La Santa Store · Cartagena
+                La Santa Store
               </span>
               <h1 className="text-sm font-black text-[#111111] uppercase tracking-tight">
-                Módulo POS & Facturación Interna
+                Consola Administrativa · Punto de Venta
               </h1>
             </div>
           </div>
