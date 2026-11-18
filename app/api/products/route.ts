@@ -35,9 +35,26 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ products: db.products });
   }
 
-  // Sanitize internal margins and costs for public visitors
+  // Sanitize internal margins, wholesale prices and warehouse breakdown for public visitors
   const publicProducts = db.products.map(
-    ({ costo_unitario: _c, configuracion_alertas: _a, ...rest }) => rest
+    ({
+      costo_unitario: _c,
+      precio_mayorista: _pm,
+      configuracion_alertas: _a,
+      variantes,
+      ...rest
+    }) => ({
+      ...rest,
+      variantes: variantes.map(
+        ({
+          stock_fisico: _sf,
+          stock_reservado: _sr,
+          stock_punto_venta: _spv,
+          stock_consignacion: _sc,
+          ...vRest
+        }) => vRest
+      ),
+    })
   );
 
   return NextResponse.json({ products: publicProducts });

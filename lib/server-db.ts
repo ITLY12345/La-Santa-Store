@@ -236,10 +236,30 @@ function normalizeLoadedDb(parsed: Partial<ServerDatabase>): ServerDatabase {
     });
   }
 
+  const rawConfig: Partial<StoreConfig> = parsed.storeConfig || {};
+  const hasZeroedShippingBug =
+    rawConfig.tarifaEnvioCartagena === 0 &&
+    rawConfig.tarifaEnvioNacional === 0 &&
+    rawConfig.envioGratisDesde === 0;
+
+  const normalizedStoreConfig: StoreConfig = {
+    ...DEFAULT_STORE_CONFIG,
+    ...rawConfig,
+    tarifaEnvioCartagena: hasZeroedShippingBug
+      ? DEFAULT_STORE_CONFIG.tarifaEnvioCartagena
+      : (rawConfig.tarifaEnvioCartagena ?? DEFAULT_STORE_CONFIG.tarifaEnvioCartagena),
+    tarifaEnvioNacional: hasZeroedShippingBug
+      ? DEFAULT_STORE_CONFIG.tarifaEnvioNacional
+      : (rawConfig.tarifaEnvioNacional ?? DEFAULT_STORE_CONFIG.tarifaEnvioNacional),
+    envioGratisDesde: hasZeroedShippingBug
+      ? DEFAULT_STORE_CONFIG.envioGratisDesde
+      : (rawConfig.envioGratisDesde ?? DEFAULT_STORE_CONFIG.envioGratisDesde),
+  };
+
   return {
     products,
     orders: Array.isArray(parsed.orders) ? parsed.orders : INITIAL_ORDERS,
-    storeConfig: { ...DEFAULT_STORE_CONFIG, ...(parsed.storeConfig || {}) },
+    storeConfig: normalizedStoreConfig,
     plugins: Array.isArray(parsed.plugins) ? parsed.plugins : INITIAL_PLUGINS,
     notifications: Array.isArray(parsed.notifications)
       ? parsed.notifications

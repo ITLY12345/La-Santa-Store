@@ -82,14 +82,19 @@ export function CartDrawer({
       };
     }
     // Envío Local
-    const isFree = cartSubtotal >= freeCartagenaThreshold;
+    const isFree =
+      rateCartagena === 0 ||
+      (freeCartagenaThreshold > 0 && cartSubtotal >= freeCartagenaThreshold);
     return {
       costo: isFree ? 0 : rateCartagena,
-      label: isFree
-        ? `Domicilio Express Local (Gratis por compra ≥ ${formatCOP(
-            freeCartagenaThreshold
-          )})`
-        : 'Domicilio Express Local',
+      label:
+        rateCartagena === 0
+          ? 'Domicilio Express Local (Sin costo)'
+          : isFree
+          ? `Domicilio Express Local (Gratis por compra ≥ ${formatCOP(
+              freeCartagenaThreshold
+            )})`
+          : 'Domicilio Express Local',
       badge: isFree ? 'Gratis' : formatCOP(rateCartagena),
     };
   }, [
@@ -382,7 +387,9 @@ export function CartDrawer({
                           : 'text-zinc-500'
                       }`}
                     >
-                      {cartSubtotal >= (storeConfig.envioGratisDesde ?? 200000)
+                      {(storeConfig.tarifaEnvioCartagena ?? 8000) === 0 ||
+                      ((storeConfig.envioGratisDesde ?? 200000) > 0 &&
+                        cartSubtotal >= (storeConfig.envioGratisDesde ?? 200000))
                         ? 'Gratis'
                         : formatCOP(storeConfig.tarifaEnvioCartagena ?? 8000)}
                     </span>

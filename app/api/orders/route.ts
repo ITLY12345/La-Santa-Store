@@ -310,12 +310,16 @@ export async function POST(req: NextRequest) {
       safeShipping = 0;
       shippingLabel = 'Recoger en Punto de Venta';
     } else {
+      const rateLocal = Math.max(0, db.storeConfig.tarifaEnvioCartagena ?? 8000);
       const freeThreshold = db.storeConfig.envioGratisDesde ?? 200000;
-      const isFree = subtotal >= freeThreshold;
-      safeShipping = isFree ? 0 : Math.max(0, db.storeConfig.tarifaEnvioCartagena ?? 8000);
-      shippingLabel = isFree
-        ? `Envío Local (Gratis por compra >= ${formatCOP(freeThreshold)})`
-        : 'Envío Local';
+      const isFree = rateLocal === 0 || (freeThreshold > 0 && subtotal >= freeThreshold);
+      safeShipping = isFree ? 0 : rateLocal;
+      shippingLabel =
+        rateLocal === 0
+          ? 'Envío Local (Sin costo)'
+          : isFree
+          ? `Envío Local (Gratis por compra >= ${formatCOP(freeThreshold)})`
+          : 'Envío Local';
     }
 
     // Server-authoritative sequential order numbering

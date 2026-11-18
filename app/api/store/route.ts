@@ -25,9 +25,26 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Filter out internal cost margins for public storefront
+  // Filter out internal cost margins, wholesale prices and warehouse breakdown for public storefront
   const publicProducts = db.products.map(
-    ({ costo_unitario: _c, configuracion_alertas: _a, ...rest }) => rest
+    ({
+      costo_unitario: _c,
+      precio_mayorista: _pm,
+      configuracion_alertas: _a,
+      variantes,
+      ...rest
+    }) => ({
+      ...rest,
+      variantes: variantes.map(
+        ({
+          stock_fisico: _sf,
+          stock_reservado: _sr,
+          stock_punto_venta: _spv,
+          stock_consignacion: _sc,
+          ...vRest
+        }) => vRest
+      ),
+    })
   );
 
   return NextResponse.json({
