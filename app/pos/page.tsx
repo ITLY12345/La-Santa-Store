@@ -8,7 +8,12 @@ import { POSDashboard } from '@/components/POSDashboard';
 import { ArrowLeft, ShieldCheck, Lock } from 'lucide-react';
 
 export default function POSPage() {
-  const { isAdminAuthenticated, authenticateAdmin, logoutAdmin } = useStore();
+  const {
+    isAdminAuthenticated,
+    authenticateAdmin,
+    logoutAdmin,
+    adminAuthErrorMessage,
+  } = useStore();
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -116,7 +121,8 @@ export default function POSPage() {
               />
               {pinError && (
                 <p className="text-xs text-red-600 mt-2 font-medium">
-                  Código PIN inválido. Verifica tus credenciales de administrador.
+                  {adminAuthErrorMessage ||
+                    'Código PIN inválido. Verifica tus credenciales de administrador.'}
                 </p>
               )}
             </div>

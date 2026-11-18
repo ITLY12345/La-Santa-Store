@@ -81,6 +81,7 @@ interface StoreContextType {
   criticalAlerts: CriticalAlertItem[];
   isHydrated: boolean;
   isAdminAuthenticated: boolean;
+  adminAuthErrorMessage: string | null;
   authenticateAdmin: (pin: string) => Promise<boolean>;
   logoutAdmin: () => void;
   // Favorites
@@ -231,6 +232,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     NotificationPermission | 'unsupported'
   >('default');
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+  const [adminAuthErrorMessage, setAdminAuthErrorMessage] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
 
   const knownNotificationIdsRef = useRef<Set<string>>(new Set());
@@ -567,17 +569,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const authenticateAdmin = async (pin: string): Promise<boolean> => {
     try {
+      setAdminAuthErrorMessage(null);
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin: pin.trim() }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        setAdminAuthErrorMessage(
+          data?.message || 'Código PIN inválido o acceso bloqueado temporalmente.'
+        );
         return false;
       }
-      const data = await res.json();
       if (data.success && data.authenticated) {
         setIsAdminAuthenticated(true);
+        setAdminAuthErrorMessage(null);
         if (Array.isArray(data.orders)) setOrders(data.orders);
         if (Array.isArray(data.plugins)) setPlugins(data.plugins);
         if (Array.isArray(data.notifications)) setNotifications(data.notifications);
@@ -590,9 +597,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
         return true;
       }
+      setAdminAuthErrorMessage(
+        data?.message || 'Código PIN inválido. Verifica tus credenciales.'
+      );
       return false;
     } catch (e) {
       console.error('Admin auth error:', e);
+      setAdminAuthErrorMessage('Error de conexión al verificar el PIN.');
       return false;
     }
   };
@@ -1733,6 +1744,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         criticalAlerts,
         isHydrated,
         isAdminAuthenticated,
+        adminAuthErrorMessage,
         authenticateAdmin,
         logoutAdmin,
         toggleFavorite,

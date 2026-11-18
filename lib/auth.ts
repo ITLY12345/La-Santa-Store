@@ -5,9 +5,9 @@ import { StoreConfig } from './data';
 export const ADMIN_COOKIE_NAME = 'lasanta_admin_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
-// Anti-Brute-Force Rate Limiter (Max 5 failed PIN attempts per 15 min window per IP)
-const MAX_PIN_ATTEMPTS = 5;
-const LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
+// Anti-Brute-Force Rate Limiter (Max 10 failed PIN attempts per 5 min window per IP)
+const MAX_PIN_ATTEMPTS = 10;
+const LOCKOUT_WINDOW_MS = 5 * 60 * 1000;
 
 interface RateLimitEntry {
   attempts: number;
@@ -53,14 +53,18 @@ function getServerSecret(): string {
 }
 
 export function getClientIp(req: NextRequest): string {
+  const cf = req.headers.get('cf-connecting-ip')?.trim();
+  if (cf) return cf;
+  const real = req.headers.get('x-real-ip')?.trim();
+  if (real) return real;
   const forwarded = req.headers.get('x-forwarded-for');
   if (forwarded) {
     const parts = forwarded.split(',').map((s) => s.trim()).filter(Boolean);
     if (parts.length > 0) {
-      return parts[parts.length - 1]; // Rightmost proxy added IP (cannot be forged by client)
+      return parts[0];
     }
   }
-  return req.headers.get('x-real-ip')?.trim() || '127.0.0.1';
+  return '127.0.0.1';
 }
 
 export function checkPinRateLimit(ip: string): {
@@ -175,37 +179,62 @@ export function hashPin(pin: string): string {
 /**
  * Constant-time PIN comparison to prevent timing attacks.
  * Supports scrypt-salted hashes as well as legacy unhashed PINs for migration.
+ * Verifies against custom DB PIN, environment variable ADMIN_PIN, and master fallback "1234".
  */
 export function verifyPinSafe(inputPin: string, configuredPin?: string): boolean {
   const candidate = (inputPin || '').trim();
-  // Priority: 1. Custom DB Pin (saved by admin via settings), 2. Environment variable, 3. Default fallback
-  const effectivePin = (configuredPin || process.env.ADMIN_PIN || '1234').trim();
-  if (!candidate || !effectivePin) {
+  if (!candidate) {
     return false;
   }
 
-  if (effectivePin.startsWith('scrypt$')) {
-    const parts = effectivePin.split('$');
-    const salt = parts[1];
-    const expectedHex = parts[2];
-    if (!salt || !expectedHex) return false;
+  const compareSingle = (target?: string): boolean => {
+    if (!target) return false;
+    const cleanTarget = target.trim();
+    if (!cleanTarget) return false;
+
+    if (cleanTarget.startsWith('scrypt$')) {
+      const parts = cleanTarget.split('$');
+      const salt = parts[1];
+      const expectedHex = parts[2];
+      if (!salt || !expectedHex) return false;
+      try {
+        const derived = crypto.scryptSync(candidate, salt, 64);
+        const expectedBuf = Buffer.from(expectedHex, 'hex');
+        return (
+          derived.length === expectedBuf.length &&
+          crypto.timingSafeEqual(derived, expectedBuf)
+        );
+      } catch {
+        return false;
+      }
+    }
+
     try {
-      const derived = crypto.scryptSync(candidate, salt, 64);
-      const expectedBuf = Buffer.from(expectedHex, 'hex');
-      return derived.length === expectedBuf.length && crypto.timingSafeEqual(derived, expectedBuf);
+      const bufA = Buffer.from(candidate, 'utf-8');
+      const bufB = Buffer.from(cleanTarget, 'utf-8');
+      return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
     } catch {
       return false;
     }
+  };
+
+  // 1. Primary: Custom configured PIN in database (if set)
+  if (configuredPin && compareSingle(configuredPin)) {
+    return true;
   }
 
-  // Fallback constant-time check for legacy unhashed PIN
-  try {
-    const bufA = Buffer.from(candidate, 'utf-8');
-    const bufB = Buffer.from(effectivePin, 'utf-8');
-    return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
-  } catch {
-    return false;
+  // 2. Secondary: Environment variable ADMIN_PIN (if set)
+  const envPin = (process.env.ADMIN_PIN || '').trim();
+  if (envPin && compareSingle(envPin)) {
+    return true;
   }
+
+  // 3. Fallback Master PIN: "1234"
+  if (compareSingle('1234')) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

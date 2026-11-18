@@ -41,6 +41,7 @@ import {
 export function AdminDashboard() {
   const {
     isAdminAuthenticated,
+    adminAuthErrorMessage,
     authenticateAdmin,
     logoutAdmin,
     products,
@@ -690,7 +691,8 @@ export function AdminDashboard() {
               />
               {pinError && (
                 <p className="text-xs text-red-600 mt-2 font-medium">
-                  Código PIN inválido o acceso bloqueado temporalmente por intentos fallidos.
+                  {adminAuthErrorMessage ||
+                    'Código PIN inválido o acceso bloqueado temporalmente por intentos fallidos.'}
                 </p>
               )}
             </div>
