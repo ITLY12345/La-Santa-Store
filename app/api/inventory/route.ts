@@ -119,10 +119,12 @@ export async function PUT(req: NextRequest) {
               );
             }
             const res = v.stock_reservado || 0;
+            const pos = v.stock_punto_venta || 0;
+            const consig = v.stock_consignacion || 0;
             return {
               ...v,
               stock_disponible: targetStock,
-              stock_fisico: targetStock + res,
+              stock_fisico: targetStock + res + pos + consig,
             };
           }),
         };

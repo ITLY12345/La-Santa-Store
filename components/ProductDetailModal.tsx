@@ -563,6 +563,15 @@ export function ProductDetailModal({
   onClose,
   onOpenCart,
 }: ProductDetailModalProps) {
+  React.useEffect(() => {
+    if (!producto) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [producto, onClose]);
+
   if (!producto) return null;
 
   return (

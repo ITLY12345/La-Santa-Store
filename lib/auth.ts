@@ -36,7 +36,14 @@ const endpointBuckets =
 
 function getServerSecret(): string {
   const configured = process.env.AUTH_SECRET?.trim();
-  if (configured && configured.length >= 32) {
+  const isInvalidPlaceholder =
+    !configured ||
+    configured.length < 32 ||
+    configured.includes('REEMPLAZAR_') ||
+    configured.includes('EXAMPLE') ||
+    configured.includes('CAMBIAR');
+
+  if (!isInvalidPlaceholder && configured) {
     return configured;
   }
   if (!globalForAuth.__lasantaEphemeralSecret) {
@@ -169,9 +176,10 @@ export function hashPin(pin: string): string {
  * Constant-time PIN comparison to prevent timing attacks.
  * Supports scrypt-salted hashes as well as legacy unhashed PINs for migration.
  */
-export function verifyPinSafe(inputPin: string, configuredPin: string): boolean {
+export function verifyPinSafe(inputPin: string, configuredPin?: string): boolean {
   const candidate = (inputPin || '').trim();
-  const effectivePin = (process.env.ADMIN_PIN || configuredPin || '1234').trim();
+  // Priority: 1. Custom DB Pin (saved by admin via settings), 2. Environment variable, 3. Default fallback
+  const effectivePin = (configuredPin || process.env.ADMIN_PIN || '1234').trim();
   if (!candidate || !effectivePin) {
     return false;
   }

@@ -168,7 +168,16 @@ export function AdminDashboard() {
 
   // Open Product Create / Edit Modal with Multi-Photo Gallery, COGS & IVA
   const openCreateProductModal = () => {
-    const nextNum = String(products.length + 1).padStart(3, '0');
+    let maxRef = 0;
+    products.forEach((p) => {
+      const match = (p.referencia || '').match(/REF-(\d+)/i);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (n > maxRef) maxRef = n;
+      }
+    });
+    const nextSeq = Math.max(maxRef + 1, products.length + 1);
+    const nextNum = String(nextSeq).padStart(3, '0');
     setEditingProductId(null);
     setProdReferencia(`REF-${nextNum}`);
     setProdNombre('');
@@ -708,7 +717,7 @@ export function AdminDashboard() {
         /* Main Authenticated Page Content */
         <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
           {/* Navigation Pills */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+          <div className="flex flex-wrap items-center gap-2 pb-1">
             <button
               onClick={() => setActiveTab('billing')}
               className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-full whitespace-nowrap transition-all ${
@@ -1979,7 +1988,7 @@ export function AdminDashboard() {
                         ...prodVariantes,
                         {
                           id_variante: `var-${prodReferencia || 'item'}-${Date.now()}-${prodVariantes.length + 1}`,
-                          sku: `SKU-${String(prodVariantes.length + 1).padStart(3, '0')}`,
+                          sku: `${prodReferencia ? prodReferencia.replace('REF-', 'SKU-') : 'SKU'}-${String(prodVariantes.length + 1).padStart(2, '0')}`,
                           talla: prodCategoria === 'Chanclas' ? '40' : 'L',
                           color: prevColor,
                           diseno_motivo: '',

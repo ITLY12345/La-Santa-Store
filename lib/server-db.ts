@@ -175,29 +175,36 @@ function normalizeLoadedDb(parsed: Partial<ServerDatabase>): ServerDatabase {
     ? parsed.products
     : INITIAL_PRODUCTS;
 
-  const seenFingerprints = new Set<string>();
   const seenIds = new Set<string>();
+  const seenRefs = new Map<string, number>();
+  const seenSkus = new Set<string>();
   const products: Producto[] = [];
 
   for (const p of rawProducts) {
     if (!p || typeof p.id !== 'string') continue;
     if (seenIds.has(p.id)) continue;
-
-    const cleanName = (p.nombre || '').replace(/\s+/g, ' ').trim();
-    const firstImgSig = Array.isArray(p.imagenes) && p.imagenes[0]
-      ? p.imagenes[0].slice(0, 120)
-      : '';
-    const fingerprint = `${cleanName.toLowerCase()}|${p.categoria}|${Number(p.precio_base) || 0}|${firstImgSig}`;
-    if (seenFingerprints.has(fingerprint)) {
-      continue;
-    }
     seenIds.add(p.id);
-    seenFingerprints.add(fingerprint);
+
+    let cleanName = (p.nombre || '').replace(/\s+/g, ' ').trim();
+    if (cleanName.includes('Biege')) {
+      cleanName = cleanName.replace(/Biege/g, 'Beige');
+    }
+
+    // Ensure unique referencia
+    let ref = (p.referencia || '').trim();
+    if (ref) {
+      const refCount = seenRefs.get(ref) || 0;
+      seenRefs.set(ref, refCount + 1);
+      if (refCount > 0) {
+        ref = `${ref}-${refCount + 1}`;
+      }
+    }
 
     products.push({
       ...p,
       nombre: cleanName || p.nombre,
-      variantes: (p.variantes || []).map((v) => {
+      referencia: ref || p.referencia,
+      variantes: (p.variantes || []).map((v, idx) => {
         const disp = Math.max(0, Number(v.stock_disponible) || 0);
         const res = Math.max(0, Number(v.stock_reservado) || 0);
         const pos = Math.max(0, Number(v.stock_punto_venta) || 0);
@@ -206,10 +213,18 @@ function normalizeLoadedDb(parsed: Partial<ServerDatabase>): ServerDatabase {
           typeof v.stock_fisico === 'number' && v.stock_fisico >= disp + pos + consig
             ? v.stock_fisico
             : disp + res + pos + consig;
+
+        let vSku = (v.sku || '').trim();
+        if (vSku && seenSkus.has(vSku)) {
+          vSku = `${vSku}-${idx + 1}`;
+        }
+        if (vSku) seenSkus.add(vSku);
+
         return {
           ...v,
+          sku: vSku || v.sku,
           talla: (v.talla || '').replace(/\s+/g, ' ').trim(),
-          color: (v.color || '').replace(/\s+/g, ' ').trim(),
+          color: (v.color || '').replace(/Biege/gi, 'Beige').replace(/\s+/g, ' ').trim(),
           diseno_motivo: '',
           stock_fisico: fis,
           stock_reservado: res,
@@ -382,6 +397,14 @@ export function readDb(): ServerDatabase {
  * falling back to the persistent local mirror when running offline.
  */
 export async function readDbAsync(): Promise<ServerDatabase> {
+  if (globalForDb.__lasantaWriteQueue) {
+    try {
+      await globalForDb.__lasantaWriteQueue;
+    } catch {
+      // ignore write error and proceed to read
+    }
+  }
+
   if (isMySqlConfigured()) {
     try {
       const pool = getMySqlPool();
@@ -529,7 +552,11 @@ export function reconcileStockItems(
       );
       if (prod && variant) {
         const prevDisp = variant.stock_disponible;
-        variant.stock_disponible += item.cantidad;
+        if (kardexContext?.ubicacionDespacho === 'Punto de Venta POS') {
+          variant.stock_punto_venta = (variant.stock_punto_venta || 0) + item.cantidad;
+        } else {
+          variant.stock_disponible += item.cantidad;
+        }
         if (kardexContext?.modalidadVenta === 'Consignación') {
           variant.stock_consignacion = Math.max(
             0,

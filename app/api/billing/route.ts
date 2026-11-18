@@ -7,7 +7,7 @@ import {
   reconcileStockItems,
   createOrderStatusNotification,
 } from '@/lib/server-db';
-import { Order, formatCOP, EstadoPedido } from '@/lib/data';
+import { Order, formatCOP, EstadoPedido, calculateTaxBreakdown } from '@/lib/data';
 import {
   isAdminRequest,
   unauthorizedResponse,
@@ -104,7 +104,26 @@ export async function POST(req: NextRequest) {
     const estadoInicial: EstadoPedido = body.estado || 'Facturado';
     const shouldDeduct = isStockCommittedState(estadoInicial);
 
-    const stockResult = reconcileStockItems(db.products, [], false, items, shouldDeduct);
+    const nextSeq = db.storeConfig.nextInvoiceSequence || 1003;
+    const prefix = db.storeConfig.prefijoFactura || 'FAC';
+    const invoiceNum = `${prefix}-${nextSeq}`;
+    const orderNum = `#POS-${nextSeq}`;
+    const ubicacionDespacho = body.ubicacionDespacho || 'Punto de Venta POS';
+    const modalidadVenta = body.modalidadVenta || 'Detal';
+
+    const stockResult = reconcileStockItems(
+      db.products,
+      [],
+      false,
+      items,
+      shouldDeduct,
+      {
+        documentoRef: invoiceNum,
+        motivoSalida: `Venta POS mostrador (${invoiceNum})`,
+        ubicacionDespacho,
+        modalidadVenta,
+      }
+    );
     if (!stockResult.success) {
       return NextResponse.json(
         { success: false, message: stockResult.errorMessage },
@@ -112,9 +131,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const nextSeq = db.storeConfig.nextInvoiceSequence || 1003;
-    const invoiceNum = `FAC-${nextSeq}`;
-    const orderNum = `#POS-${nextSeq}`;
     const subtotal = items.reduce(
       (acc: number, it: { precio: number; cantidad: number }) => acc + it.precio * it.cantidad,
       0
@@ -122,6 +138,9 @@ export async function POST(req: NextRequest) {
     const envio = Math.max(0, Number(body.costoEnvio) || 0);
     const descuento = Math.max(0, Number(body.descuentoManual) || 0);
     const total = Math.max(0, subtotal + envio - descuento);
+    const tax = calculateTaxBreakdown(Math.max(0, subtotal - descuento), 19);
+
+    const appBaseUrl = process.env.APP_URL || 'https://lasantastore.enigmaproducciones.com';
 
     const newInvoice: Order = {
       id: `pos-${Date.now()}`,
@@ -135,6 +154,8 @@ export async function POST(req: NextRequest) {
           : undefined,
       fechaEntrega: estadoInicial === 'Entregado' ? formattedDate : undefined,
       origen: 'POS Interno',
+      modalidadVenta,
+      ubicacionDespacho,
       clienteNombre: (body.clienteNombre || 'Cliente Mostrador Cartagena').trim(),
       clienteDocumento: (body.clienteDocumento || '222222222222').trim(),
       clienteTelefono: (body.clienteTelefono || '').trim(),
@@ -145,6 +166,9 @@ export async function POST(req: NextRequest) {
       guiaSeguimiento: body.guiaSeguimiento || '',
       items,
       subtotal,
+      baseGravable: tax.baseGravable,
+      impuestoIva: tax.impuestoIva,
+      ivaPorcentaje: tax.ivaPorcentaje,
       costoEnvio: envio,
       descuentoManual: descuento,
       envioTexto: envio > 0 ? formatCOP(envio) : 'Sin costo / Local Cartagena',
@@ -153,10 +177,16 @@ export async function POST(req: NextRequest) {
       metodoPagoInterno: body.metodoPagoInterno || 'Efectivo',
       stockDeducted: shouldDeduct,
       notas: body.notas || '',
-      referenceUrl: `https://store.app/factura/${invoiceNum}`,
+      referenceUrl: `${appBaseUrl.replace(/\/$/, '')}/factura/${invoiceNum}`,
     };
 
     db.products = stockResult.products;
+    if (stockResult.generatedMoves.length > 0) {
+      db.stockMoves = [
+        ...stockResult.generatedMoves,
+        ...(db.stockMoves || []),
+      ].slice(0, 500);
+    }
     db.orders = [newInvoice, ...db.orders];
     db.storeConfig.nextInvoiceSequence = nextSeq + 1;
 
@@ -218,13 +248,21 @@ export async function PUT(req: NextRequest) {
     }
 
     const shouldDeductNext = isStockCommittedState(nextEstado);
+    const nextModalidad = body.modalidadVenta || existingInvoice.modalidadVenta || 'Detal';
+    const nextUbicacion = body.ubicacionDespacho || existingInvoice.ubicacionDespacho || 'Punto de Venta POS';
 
     const stockRes = reconcileStockItems(
       db.products,
       existingInvoice.items,
       existingInvoice.stockDeducted,
       nextItems,
-      shouldDeductNext
+      shouldDeductNext,
+      {
+        orderId: existingInvoice.id,
+        documentoRef: existingInvoice.invoiceNumber || existingInvoice.orderNumber,
+        ubicacionDespacho: nextUbicacion,
+        modalidadVenta: nextModalidad,
+      }
     );
 
     if (!stockRes.success) {
@@ -239,9 +277,10 @@ export async function PUT(req: NextRequest) {
     let fechaDespacho = existingInvoice.fechaDespacho;
     let fechaEntrega = existingInvoice.fechaEntrega;
     const nextSeq = db.storeConfig.nextInvoiceSequence || 1003;
+    const prefix = db.storeConfig.prefijoFactura || 'FAC';
 
     if (shouldDeductNext && !assignedInvoice) {
-      assignedInvoice = `FAC-${nextSeq}`;
+      assignedInvoice = `${prefix}-${nextSeq}`;
       fechaFacturacion = formattedDate;
       db.storeConfig.nextInvoiceSequence = nextSeq + 1;
     }
@@ -316,6 +355,12 @@ export async function PUT(req: NextRequest) {
     };
 
     db.products = stockRes.products;
+    if (stockRes.generatedMoves.length > 0) {
+      db.stockMoves = [
+        ...stockRes.generatedMoves,
+        ...(db.stockMoves || []),
+      ].slice(0, 500);
+    }
     db.orders[targetIdx] = updatedInvoice;
 
     if (
@@ -370,14 +415,36 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
+    const nextNcSeq = db.storeConfig.nextCreditNoteSequence || 1001;
+    const creditNoteNumber = target.invoiceNumber
+      ? target.creditNoteNumber || `NC-${nextNcSeq}`
+      : undefined;
+
     if (target.stockDeducted) {
-      const stockRes = reconcileStockItems(db.products, target.items, true, [], false);
+      const stockRes = reconcileStockItems(
+        db.products,
+        target.items,
+        true,
+        [],
+        false,
+        {
+          orderId: target.id,
+          documentoRef: creditNoteNumber || target.invoiceNumber || target.orderNumber,
+          motivoReintegro: `Devolución a inventario por Nota Crédito ${creditNoteNumber || target.invoiceNumber || ''}`,
+          ubicacionDespacho: target.ubicacionDespacho || 'Punto de Venta POS',
+          modalidadVenta: target.modalidadVenta || 'Detal',
+        }
+      );
       db.products = stockRes.products;
+      if (stockRes.generatedMoves.length > 0) {
+        db.stockMoves = [
+          ...stockRes.generatedMoves,
+          ...(db.stockMoves || []),
+        ].slice(0, 500);
+      }
     }
 
     if (target.invoiceNumber) {
-      const nextNcSeq = db.storeConfig.nextCreditNoteSequence || 1001;
-      const creditNoteNumber = target.creditNoteNumber || `NC-${nextNcSeq}`;
       if (!target.creditNoteNumber) {
         db.storeConfig.nextCreditNoteSequence = nextNcSeq + 1;
       }

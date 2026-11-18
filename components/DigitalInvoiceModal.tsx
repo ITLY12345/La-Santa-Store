@@ -24,6 +24,15 @@ interface DigitalInvoiceModalProps {
 export function DigitalInvoiceModal({ order, onClose }: DigitalInvoiceModalProps) {
   const { storeConfig } = useStore();
 
+  React.useEffect(() => {
+    if (!order) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [order, onClose]);
+
   if (!order) return null;
 
   const handlePrint = () => {

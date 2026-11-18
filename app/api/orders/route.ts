@@ -393,17 +393,16 @@ export async function PUT(req: NextRequest) {
     const existingOrder = db.orders[targetIndex];
     const formattedDate = getFormattedNow();
 
-    // Preserve invoice immutability: Line items of an issued invoice cannot be retroactively altered
+    // If the invoice is already formally voided with a Credit Note, it cannot be mutated
     if (
-      existingOrder.invoiceNumber &&
-      existingOrder.estado !== 'Cancelado' &&
+      existingOrder.creditNoteNumber &&
       body.items &&
       JSON.stringify(body.items) !== JSON.stringify(existingOrder.items)
     ) {
       return NextResponse.json(
         {
           success: false,
-          message: `La factura oficial ${existingOrder.invoiceNumber} ya fue emitida y sus productos no pueden ser modificados. Para registrar devoluciones o cambios, anula la factura con Nota Crédito o ajusta el estado de entrega.`,
+          message: `La factura oficial ${existingOrder.invoiceNumber} ya fue anulada con Nota Crédito (${existingOrder.creditNoteNumber}) y no puede ser modificada.`,
         },
         { status: 400 }
       );
@@ -654,6 +653,8 @@ export async function DELETE(req: NextRequest) {
           motivoReintegro: `Devolución a inventario por Nota Crédito ${
             creditNoteNumber || target.invoiceNumber
           }`,
+          ubicacionDespacho: target.ubicacionDespacho || 'Bodega Principal',
+          modalidadVenta: target.modalidadVenta || 'Detal',
         }
       );
       db.products = stockRes.products;

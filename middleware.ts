@@ -17,13 +17,22 @@ function applySecurityHeaders(res: NextResponse): NextResponse {
   return res;
 }
 
+function hasSignedTokenStructure(token?: string | null): boolean {
+  if (!token || typeof token !== 'string') return false;
+  const trimmed = token.trim();
+  if (trimmed.length < 30) return false;
+  const parts = trimmed.split('.');
+  return parts.length === 2 && parts[0].length >= 10 && parts[1].length >= 10;
+}
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const method = req.method.toUpperCase();
 
+  const rawCookieToken = req.cookies.get(ADMIN_COOKIE_NAME)?.value;
+  const rawHeaderToken = req.headers.get('x-admin-token');
   const hasAdminCredential =
-    Boolean(req.cookies.get(ADMIN_COOKIE_NAME)?.value) ||
-    Boolean(req.headers.get('x-admin-token'));
+    hasSignedTokenStructure(rawCookieToken) || hasSignedTokenStructure(rawHeaderToken);
 
   const isStrictlyAdminEndpoint = ADMIN_ONLY_API_PREFIXES.some((prefix) =>
     pathname.startsWith(prefix)
@@ -36,8 +45,12 @@ export function middleware(req: NextRequest) {
   const isAdminOrderMutation =
     pathname === '/api/orders' && (method === 'PUT' || method === 'DELETE');
 
+  const isAdminStoreMutation =
+    pathname.startsWith('/api/store') &&
+    (method === 'POST' || method === 'PUT' || method === 'DELETE');
+
   if (
-    (isStrictlyAdminEndpoint || isAdminProductMutation || isAdminOrderMutation) &&
+    (isStrictlyAdminEndpoint || isAdminProductMutation || isAdminOrderMutation || isAdminStoreMutation) &&
     !hasAdminCredential
   ) {
     const unauthorized = NextResponse.json(

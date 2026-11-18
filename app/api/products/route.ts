@@ -102,12 +102,7 @@ export async function POST(req: NextRequest) {
     };
 
     const existingIdx = db.products.findIndex(
-      (p) =>
-        p.id === newProduct.id ||
-        (p.nombre.trim().toLowerCase() === newProduct.nombre.trim().toLowerCase() &&
-          p.categoria === newProduct.categoria &&
-          p.precio_base === newProduct.precio_base &&
-          (p.imagenes[0] || '').slice(0, 120) === (newProduct.imagenes[0] || '').slice(0, 120))
+      (p) => p.id === newProduct.id
     );
 
     if (existingIdx > -1) {
@@ -174,10 +169,12 @@ export async function PUT(req: NextRequest) {
               );
             }
             const res = v.stock_reservado || 0;
+            const pos = v.stock_punto_venta || 0;
+            const consig = v.stock_consignacion || 0;
             return {
               ...v,
               stock_disponible: targetStock,
-              stock_fisico: targetStock + res,
+              stock_fisico: targetStock + res + pos + consig,
             };
           }),
         };

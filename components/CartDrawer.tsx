@@ -53,6 +53,15 @@ export function CartDrawer({
     null
   );
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   const shippingDetails = useMemo(() => {
     const freeCartagenaThreshold = storeConfig.envioGratisDesde ?? 200000;
     const rateCartagena = storeConfig.tarifaEnvioCartagena ?? 8000;
@@ -344,10 +353,12 @@ export function CartDrawer({
                     <Truck className="w-3.5 h-3.5" />
                     <span>Modalidad de Entrega</span>
                   </h4>
-                  {cartSubtotal < 200000 && shippingOption === 'cartagena' && (
-                    <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                      Envío gratis desde $200.000
-                    </span>
+                  {(storeConfig.tarifaEnvioCartagena ?? 8000) > 0 &&
+                    cartSubtotal < (storeConfig.envioGratisDesde ?? 200000) &&
+                    shippingOption === 'cartagena' && (
+                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                        Envío gratis desde {formatCOP(storeConfig.envioGratisDesde ?? 200000)}
+                      </span>
                   )}
                 </div>
 

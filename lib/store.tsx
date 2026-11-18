@@ -17,12 +17,27 @@ import {
   DEFAULT_STORE_CONFIG,
   INITIAL_PLUGINS,
   formatCOP,
+  calculateTaxBreakdown,
 } from './data';
 
 const STORAGE_KEY_PRODUCTS = 'lasanta_store_products_v6';
 const STORAGE_KEY_CART = 'lasanta_store_cart_v6';
 const STORAGE_KEY_FAVORITES = 'lasanta_store_favorites_v6';
 const STORAGE_KEY_MY_ORDER_IDS = 'lasanta_my_order_ids_v6';
+
+function getLightweightProductsForStorage(prods: Producto[]): Producto[] {
+  return prods.map((p) => {
+    const firstImg = p.imagenes?.[0] || '';
+    const safeImgs = firstImg.startsWith('data:')
+      ? [firstImg.slice(0, 500)]
+      : p.imagenes?.slice(0, 2) || [];
+    return {
+      ...p,
+      imagenes: safeImgs,
+      descripcion: (p.descripcion || '').slice(0, 150),
+    };
+  });
+}
 
 // Legacy insecure keys to purge from browsers on startup
 const LEGACY_KEYS_TO_PURGE = [
@@ -341,7 +356,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               : [],
           }));
           setProducts(cleanedProducts);
-          localStorage.setItem(STORAGE_KEY_PRODUCTS, JSON.stringify(cleanedProducts));
+          try {
+            const lightweight = getLightweightProductsForStorage(cleanedProducts);
+            localStorage.setItem(STORAGE_KEY_PRODUCTS, JSON.stringify(lightweight));
+          } catch (e) {
+            console.warn('LocalStorage write failed:', e);
+          }
         }
 
         if (data.storeConfig) {
@@ -465,9 +485,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const saveProductsLocal = (newProducts: Producto[]) => {
     setProducts(newProducts);
     try {
-      localStorage.setItem(STORAGE_KEY_PRODUCTS, JSON.stringify(newProducts));
+      const lightweight = getLightweightProductsForStorage(newProducts);
+      localStorage.setItem(STORAGE_KEY_PRODUCTS, JSON.stringify(lightweight));
     } catch (e) {
-      console.error(e);
+      console.warn('LocalStorage quota exceeded or restricted:', e);
+      try {
+        localStorage.removeItem(STORAGE_KEY_PRODUCTS);
+      } catch {
+        // ignore
+      }
     }
   };
 
@@ -617,13 +643,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const prod = nextProducts.find((p) => p.id === item.productoId);
         const variant = prod?.variantes.find((v) => v.id_variante === item.varianteId);
         if (variant) {
-          variant.stock_disponible += item.cantidad;
+          if (ubicacionDespacho === 'Punto de Venta POS') {
+            variant.stock_punto_venta = (variant.stock_punto_venta || 0) + item.cantidad;
+          } else {
+            variant.stock_disponible += item.cantidad;
+          }
           if (modalidadVenta === 'Consignación') {
             variant.stock_consignacion = Math.max(
               0,
               (variant.stock_consignacion || 0) - item.cantidad
             );
           }
+          variant.stock_fisico =
+            (variant.stock_disponible || 0) +
+            (variant.stock_reservado || 0) +
+            (variant.stock_punto_venta || 0) +
+            (variant.stock_consignacion || 0);
         }
       }
     }
@@ -663,6 +698,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (modalidadVenta === 'Consignación') {
           variant.stock_consignacion = (variant.stock_consignacion || 0) + item.cantidad;
         }
+        variant.stock_fisico =
+          (variant.stock_disponible || 0) +
+          (variant.stock_reservado || 0) +
+          (variant.stock_punto_venta || 0) +
+          (variant.stock_consignacion || 0);
       }
     }
 
@@ -1115,6 +1155,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const modalidadVenta: ModalidadVentaPOS = payload.modalidadVenta || 'Detal';
     const ubicacionDespacho = payload.ubicacionDespacho || 'Bodega Principal';
 
+    const previousOrders = structuredClone(orders);
+    const previousProducts = structuredClone(products);
+
     const stockRes = reconcileClientStock(
       products,
       [],
@@ -1129,13 +1172,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
 
     const nextSeq = storeConfig.nextInvoiceSequence || 1003;
-    const invoiceNum = `FAC-${nextSeq}`;
+    const prefix = storeConfig.prefijoFactura || 'FAC';
+    const invoiceNum = `${prefix}-${nextSeq}`;
     const orderNum = `#POS-${nextSeq}`;
     const formattedDate = getFormattedNow();
     const subtotal = payload.items.reduce((acc, it) => acc + it.precio * it.cantidad, 0);
     const envio = Math.max(0, Number(payload.costoEnvio) || 0);
     const descuento = Math.max(0, Number(payload.descuentoManual) || 0);
     const total = Math.max(0, subtotal + envio - descuento);
+    const tax = calculateTaxBreakdown(Math.max(0, subtotal - descuento), 19);
 
     const isCreditOrConsig =
       modalidadVenta === 'Crédito' || modalidadVenta === 'Consignación';
@@ -1170,6 +1215,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       guiaSeguimiento: payload.guiaSeguimiento?.trim() || '',
       items: payload.items,
       subtotal,
+      baseGravable: tax.baseGravable,
+      impuestoIva: tax.impuestoIva,
+      ivaPorcentaje: tax.ivaPorcentaje,
       costoEnvio: envio,
       descuentoManual: descuento,
       envioTexto: envio > 0 ? formatCOP(envio) : 'Sin costo / Local Cartagena',
@@ -1181,7 +1229,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       metodoPagoInterno: payload.metodoPagoInterno,
       stockDeducted: shouldDeduct,
       notas: payload.notas,
-      referenceUrl: `https://store.app/factura/${invoiceNum}`,
+      referenceUrl: `https://lasantastore.enigmaproducciones.com/factura/${invoiceNum}`,
     };
 
     saveProductsLocal(stockRes.products);
@@ -1206,7 +1254,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     })
       .then((r) => r.json())
       .then((data) => {
-        if (data.success && Array.isArray(data.orders)) {
+        if (!data.success) {
+          console.error('Error emitiendo factura POS:', data.message);
+          setOrders(previousOrders);
+          saveProductsLocal(previousProducts);
+          return;
+        }
+        if (Array.isArray(data.orders)) {
           setOrders(data.orders);
           if (Array.isArray(data.products)) saveProductsLocal(data.products);
           if (Array.isArray(data.stockMoves)) setStockMoves(data.stockMoves);
@@ -1219,7 +1273,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           }
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error('Error de red al registrar factura POS, revirtiendo estado:', err);
+        setOrders(previousOrders);
+        saveProductsLocal(previousProducts);
+      });
 
     return { success: true, order: newInvoiceOrder };
   };
@@ -1291,6 +1349,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return { success: false, message: 'La factura debe tener al menos un producto.' };
     }
 
+    const previousOrders = structuredClone(orders);
+    const previousProducts = structuredClone(products);
+
     const shouldDeductNext = isStockCommitted(payload.estado);
     const nextModalidad: ModalidadVentaPOS =
       payload.modalidadVenta || targetOrder.modalidadVenta || 'Detal';
@@ -1313,12 +1374,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     const formattedDate = getFormattedNow();
     const nextSeq = storeConfig.nextInvoiceSequence || 1003;
+    const prefix = storeConfig.prefijoFactura || 'FAC';
     let assignedInvoice = targetOrder.invoiceNumber;
     let fechaFacturacion = targetOrder.fechaFacturacion;
     let seqIncremented = false;
 
     if (shouldDeductNext && !assignedInvoice) {
-      assignedInvoice = `FAC-${nextSeq}`;
+      assignedInvoice = `${prefix}-${nextSeq}`;
       fechaFacturacion = formattedDate;
       seqIncremented = true;
     }
@@ -1402,7 +1464,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     })
       .then((r) => r.json())
       .then((data) => {
-        if (data.success && Array.isArray(data.orders)) {
+        if (!data.success) {
+          console.error('Error actualizando orden en servidor:', data.message);
+          setOrders(previousOrders);
+          saveProductsLocal(previousProducts);
+          return;
+        }
+        if (Array.isArray(data.orders)) {
           setOrders(data.orders);
           if (Array.isArray(data.products)) saveProductsLocal(data.products);
           if (Array.isArray(data.stockMoves)) setStockMoves(data.stockMoves);
@@ -1414,7 +1482,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           }
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error('Error de red al actualizar orden, revirtiendo:', err);
+        setOrders(previousOrders);
+        saveProductsLocal(previousProducts);
+      });
 
     return { success: true, order: updatedOrder };
   };
@@ -1473,7 +1545,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const previousProducts = structuredClone(products);
 
     if (target.stockDeducted) {
-      const stockRes = reconcileClientStock(products, target.items, true, [], false);
+      const stockRes = reconcileClientStock(
+        products,
+        target.items,
+        true,
+        [],
+        false,
+        target.ubicacionDespacho,
+        target.modalidadVenta
+      );
       saveProductsLocal(stockRes.products);
     }
 

@@ -9,6 +9,7 @@ import { ProductCard } from '@/components/ProductCard';
 import { ProductDetailModal } from '@/components/ProductDetailModal';
 import { CartDrawer } from '@/components/CartDrawer';
 import { StoreFooter, CookieConsentBanner } from '@/components/FooterAndCookies';
+import { PushNotificationToast, OrderTrackerModal } from '@/components/OrderTrackerModal';
 import {
   ShoppingBag,
   SlidersHorizontal,
@@ -56,11 +57,22 @@ export default function Home() {
   // Modals
   const [selectedProduct, setSelectedProduct] = useState<Producto | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isTrackerOpen, setIsTrackerOpen] = useState(false);
 
   const [mounted, setMounted] = useState(false);
 
   React.useEffect(() => {
-    const handle = requestAnimationFrame(() => setMounted(true));
+    const handle = requestAnimationFrame(() => {
+      setMounted(true);
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('pedido')) {
+          setIsTrackerOpen(true);
+        }
+      } catch {
+        // ignore query parsing errors
+      }
+    });
     return () => cancelAnimationFrame(handle);
   }, []);
 
@@ -649,6 +661,15 @@ export default function Home() {
       <CartDrawer
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
+      />
+
+      {/* Real-time Order Tracking Push Notification Toast */}
+      <PushNotificationToast onOpenTracker={() => setIsTrackerOpen(true)} />
+
+      {/* Customer Order Tracker & Real-time Delivery Status Modal */}
+      <OrderTrackerModal
+        isOpen={isTrackerOpen}
+        onClose={() => setIsTrackerOpen(false)}
       />
 
       {/* 100% Functional Store Filter Modal (Categories: Camisetas, Bolsos, Chanclas + Sizes + Colors + Price Sort + Stock) */}
